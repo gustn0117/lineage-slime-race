@@ -4,8 +4,9 @@ import { LANE_COUNT, Race } from "@/lib/types";
 
 type Props = {
   race: Race;
-  onChange: (race: Race) => void;
-  onDelete: () => void;
+  readOnly?: boolean;
+  onChange?: (race: Race) => void;
+  onDelete?: () => void;
 };
 
 function timeLabel(t: string): string {
@@ -17,14 +18,21 @@ function timeLabel(t: string): string {
   return `${period} ${h12}:${mm}`;
 }
 
-export default function RaceRow({ race, onChange, onDelete }: Props) {
+export default function RaceRow({
+  race,
+  readOnly = false,
+  onChange,
+  onDelete,
+}: Props) {
   const setLane = (idx: number, patch: Partial<Race["lanes"][number]>) => {
+    if (!onChange) return;
     const lanes = race.lanes.map((l, i) =>
       i === idx ? { ...l, ...patch } : l
     );
     onChange({ ...race, lanes });
   };
   const setWinner = (lane: number) => {
+    if (!onChange) return;
     onChange({
       ...race,
       winnerLane: race.winnerLane === lane ? null : lane,
@@ -38,6 +46,31 @@ export default function RaceRow({ race, onChange, onDelete }: Props) {
         const lane = race.lanes[i];
         const isWinner = race.winnerLane === i + 1;
         const hasData = lane.slime.trim().length > 0;
+
+        if (readOnly) {
+          return (
+            <td key={i} className={isWinner ? "lane-bg-winner" : ""}>
+              <div className="flex items-center gap-1.5 px-1">
+                {typeof lane.number === "number" && (
+                  <span className="text-xs tabular-nums text-zinc-400 w-8 text-center shrink-0">
+                    {lane.number}
+                  </span>
+                )}
+                <span
+                  className={`flex-1 truncate text-sm ${
+                    hasData ? "text-zinc-100" : "text-zinc-700"
+                  } ${isWinner ? "font-semibold" : ""}`}
+                >
+                  {lane.slime || "-"}
+                </span>
+                {isWinner && (
+                  <span className="text-[10px] text-yellow-400">★</span>
+                )}
+              </div>
+            </td>
+          );
+        }
+
         return (
           <td key={i} className={isWinner ? "lane-bg-winner" : ""}>
             <div className="flex items-center gap-1">
@@ -78,14 +111,16 @@ export default function RaceRow({ race, onChange, onDelete }: Props) {
         );
       })}
       <td>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="text-xs text-zinc-600 hover:text-red-400 transition"
-          title="삭제"
-        >
-          ✕
-        </button>
+        {!readOnly && onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="text-xs text-zinc-600 hover:text-red-400 transition"
+            title="삭제"
+          >
+            ✕
+          </button>
+        )}
       </td>
     </tr>
   );

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSettings, saveSettings } from "@/lib/db";
+import { isAdminRequest } from "@/lib/admin";
 
 export async function GET() {
   const settings = await getSettings();
@@ -7,6 +8,9 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   const body = await req.json();
   const patch: { recentWindow?: number } = {};
   if (typeof body.recentWindow === "number" && body.recentWindow > 0) {

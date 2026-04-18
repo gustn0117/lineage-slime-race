@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteRace, listRaces, saveRace } from "@/lib/db";
 import { LANE_COUNT, Race } from "@/lib/types";
+import { isAdminRequest } from "@/lib/admin";
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  if (!isAdminRequest(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   const { id } = await ctx.params;
   const ok = await deleteRace(id);
   if (!ok) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -16,6 +20,9 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  if (!isAdminRequest(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   const { id } = await ctx.params;
   const all = await listRaces();
   const cur = all.find((r) => r.id === id);

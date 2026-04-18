@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listRaces, saveRace } from "@/lib/db";
 import { LANE_COUNT, Race } from "@/lib/types";
+import { isAdminRequest } from "@/lib/admin";
 
 export async function GET() {
   const races = await listRaces();
@@ -14,6 +15,9 @@ function makeId() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   const body = (await req.json()) as Partial<Race>;
 
   if (!body.date || !body.time) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker, TimePicker } from "@/app/components/DateTimePicker";
 import { LANE_COUNT, Race } from "@/lib/types";
 import { useState } from "react";
 
@@ -92,26 +93,20 @@ export default function AddRaceForm({ existingRaces, onAdd }: Props) {
 
       <div className="p-4 flex flex-col gap-4">
         <div className="flex flex-wrap gap-2 items-end">
-          <label className="field">
-            날짜
-            <input
-              type="date"
+          <div className="flex flex-col gap-1">
+            <span className="field-label">날짜</span>
+            <DatePicker
               value={date}
-              onChange={(e) => {
-                setDate(e.target.value);
-                setTime(nextRaceTime(existingRaces, e.target.value));
+              onChange={(v) => {
+                setDate(v);
+                setTime(nextRaceTime(existingRaces, v));
               }}
             />
-          </label>
-          <label className="field">
-            시간
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              step={600}
-            />
-          </label>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="field-label">시간</span>
+            <TimePicker value={time} onChange={setTime} step={10} />
+          </div>
           <button
             type="button"
             onClick={() => setTime(nextRaceTime(existingRaces, date))}

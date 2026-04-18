@@ -67,3 +67,26 @@ export async function apiSaveSettings(
   );
   return settings;
 }
+
+export async function apiAdminStatus(): Promise<boolean> {
+  const { admin } = await handle<{ admin: boolean }>(
+    await fetch("/api/admin/status", { cache: "no-store" })
+  );
+  return admin;
+}
+
+export async function apiAdminLogin(password: string): Promise<void> {
+  await handle<{ ok: true }>(
+    await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    })
+  );
+}
+
+export async function apiAdminLogout(): Promise<void> {
+  await handle<{ ok: true }>(
+    await fetch("/api/admin/logout", { method: "POST" })
+  );
+}
