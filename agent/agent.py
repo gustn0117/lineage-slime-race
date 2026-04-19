@@ -16,12 +16,26 @@ import json
 import logging
 import os
 import re
+import ssl
 import sys
 import threading
 import time
 import traceback
 from pathlib import Path
 from typing import Optional
+
+# Windows Python은 시스템 인증서 저장소를 기본 참조하지 않아서
+# urllib 기반 HTTPS 다운로드(easyocr 모델 등)가 SSL_CERT_VERIFY_FAILED로 실패함.
+# certifi 번들을 기본 HTTPS 컨텍스트로 고정.
+try:
+    import certifi  # type: ignore
+
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+    ssl._create_default_https_context = lambda *a, **kw: _SSL_CTX  # type: ignore[assignment]
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except Exception:
+    pass
 
 import tkinter as tk
 from tkinter import messagebox
