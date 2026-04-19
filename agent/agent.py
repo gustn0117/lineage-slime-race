@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -504,7 +506,35 @@ class Agent:
 # --------------------------------------------------------------------------- #
 
 
-def main() -> int:
+def log_path() -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
+    else:
+        base = Path(__file__).parent
+    return base / "agent.log"
+
+
+def setup_logging() -> None:
+    """파일과 콘솔 양쪽에 로그를 남겨서 창이 닫혀도 원인 추적 가능."""
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
+    )
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    # 파일
+    try:
+        fh = logging.FileHandler(log_path(), mode="a", encoding="utf-8")
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
+    except Exception:
+        pass
+    # 콘솔 (기본 stdout)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    root.addHandler(sh)
+
+
+def _run() -> int:
     # Windows DPI 인식 (멀티모니터/스케일링 시 좌표 안 어긋나게)
     if sys.platform.startswith("win"):
         try:
@@ -539,6 +569,7 @@ def main() -> int:
         print(f"  {i+1}번: ({l['x']}, {l['y']})")
     d = cfg["dialog"]
     print(f"대화창: x={d['x']} y={d['y']} w={d['w']} h={d['h']}")
+    print(f"로그 파일: {log_path()}")
     print("=" * 60)
     print("창을 닫거나 Ctrl+C 로 종료됩니다.")
     print()
@@ -549,6 +580,36 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     return 0
+
+
+def main() -> int:
+    setup_logging()
+    try:
+        return _run()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        return 0
+    except Exception:
+        tb = traceback.format_exc()
+        print("\n" + "=" * 60)
+        print("UNHANDLED ERROR — 다음 내용을 개발자에게 보내주세요:")
+        print("=" * 60)
+        print(tb)
+        try:
+            with log_path().open("a", encoding="utf-8") as f:
+                f.write("\n[FATAL " + time.strftime("%Y-%m-%d %H:%M:%S") + "]\n")
+                f.write(tb)
+        except Exception:
+            pass
+        print("=" * 60)
+        print(f"전체 로그: {log_path()}")
+        print()
+        try:
+            input("이 창을 닫으려면 Enter 를 누르세요...")
+        except EOFError:
+            time.sleep(30)
+        return 1
 
 
 if __name__ == "__main__":
