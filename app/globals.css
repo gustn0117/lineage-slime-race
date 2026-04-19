@@ -326,10 +326,17 @@ main {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 10px 12px;
   background: rgba(0, 0, 0, 0.35);
   border-bottom: 1px solid rgba(234, 179, 8, 0.18);
+}
+
+@media (min-width: 640px) {
+  .race-featured-head {
+    padding: 12px 16px;
+    gap: 10px;
+  }
 }
 
 .race-featured-latest {
@@ -348,11 +355,17 @@ main {
 
 .race-featured-time {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
   color: #fafafa;
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 640px) {
+  .race-featured-time {
+    font-size: 20px;
+  }
 }
 
 .race-featured-date {
@@ -368,19 +381,31 @@ main {
 
 .race-featured-lanes {
   display: grid;
-  grid-template-columns: repeat(5, minmax(90px, 1fr));
-  min-width: 460px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (min-width: 640px) {
+  .race-featured-lanes {
+    grid-template-columns: repeat(5, minmax(90px, 1fr));
+  }
 }
 
 .lane-col {
-  padding: 14px 10px 12px;
+  padding: 10px 4px 10px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 6px;
   border-right: 1px solid var(--panel-border);
   min-width: 0;
   position: relative;
+}
+
+@media (min-width: 640px) {
+  .lane-col {
+    padding: 14px 10px 12px;
+    gap: 8px;
+  }
 }
 
 .lane-col:last-child {
@@ -396,12 +421,20 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 3px;
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   color: #cbd5e1;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
+}
+
+@media (min-width: 640px) {
+  .lane-col-label {
+    font-size: 12px;
+    gap: 5px;
+    letter-spacing: 0.04em;
+  }
 }
 
 .lane-col.lane-bg-winner .lane-col-label {
@@ -409,14 +442,21 @@ main {
 }
 
 .lane-col-num {
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 900;
   text-align: center;
   color: #e5e7eb;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-display);
   line-height: 1;
-  min-height: 22px;
+  min-height: 18px;
+}
+
+@media (min-width: 640px) {
+  .lane-col-num {
+    font-size: 22px;
+    min-height: 22px;
+  }
 }
 
 .lane-col.lane-bg-winner .lane-col-num {
@@ -425,14 +465,22 @@ main {
 
 .lane-col-name {
   text-align: center;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 600;
   color: #fafafa;
-  min-height: 20px;
+  min-height: 18px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0 4px;
+  padding: 0 2px;
+}
+
+@media (min-width: 640px) {
+  .lane-col-name {
+    font-size: 14px;
+    min-height: 20px;
+    padding: 0 4px;
+  }
 }
 
 .lane-col.lane-bg-winner .lane-col-name {
@@ -457,9 +505,9 @@ main {
   width: 100%;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--panel-border-strong);
-  border-radius: 8px;
-  padding: 6px 0;
-  font-size: 20px;
+  border-radius: 7px;
+  padding: 4px 0;
+  font-size: 15px;
   font-weight: 800;
   text-align: center;
   color: #f1f5f9;
@@ -467,6 +515,15 @@ main {
   transition: border-color 120ms, background 120ms;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-display);
+  min-width: 0;
+}
+
+@media (min-width: 640px) {
+  .num-input-lg {
+    padding: 6px 0;
+    font-size: 20px;
+    border-radius: 8px;
+  }
 }
 
 .num-input-lg:focus {
@@ -479,13 +536,21 @@ main {
   min-width: 0;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--panel-border-strong);
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 13px;
+  border-radius: 7px;
+  padding: 4px 4px;
+  font-size: 11px;
   text-align: center;
   color: #f1f5f9;
   outline: none;
   transition: border-color 120ms, background 120ms;
+}
+
+@media (min-width: 640px) {
+  .slime-input-lg {
+    padding: 6px 8px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
 }
 
 .slime-input-lg:focus {
