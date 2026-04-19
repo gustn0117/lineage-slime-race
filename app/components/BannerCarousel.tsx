@@ -28,7 +28,13 @@ export default function BannerCarousel({ banners, intervalMs = 5000 }: Props) {
     if (idx >= active.length) setIdx(0);
   }, [active.length, idx]);
 
-  if (active.length === 0) return null;
+  if (active.length === 0) {
+    return (
+      <div className="banner banner-placeholder" aria-hidden>
+        <span>AD · 광고 영역</span>
+      </div>
+    );
+  }
 
   const cur = active[idx] ?? active[0];
   const inner = (

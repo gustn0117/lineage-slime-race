@@ -385,6 +385,31 @@ main {
   object-fit: cover;
 }
 
+.banner-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0a0a0e;
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05) 0 10px,
+    transparent 10px 22px
+  );
+  line-height: 1.2;
+}
+
+.banner-placeholder span {
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.28em;
+  padding: 4px 12px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  text-transform: uppercase;
+}
+
 .banner-dots {
   position: absolute;
   bottom: 8px;
