@@ -1,6 +1,7 @@
 "use client";
 
 import AddRaceForm from "@/app/components/AddRaceForm";
+import FeaturedRaceCard from "@/app/components/FeaturedRaceCard";
 import RaceCard from "@/app/components/RaceCard";
 import Slime from "@/app/components/Slime";
 import { LaneStatsBar, SlimeStatsTable } from "@/app/components/StatsPanel";
@@ -243,16 +244,30 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
                     : "아직 기록이 없습니다."}
                 </div>
               ) : (
-                <div className="race-grid">
-                  {visibleRaces.map((r) => (
-                    <RaceCard
-                      key={r.id}
-                      race={r}
-                      readOnly={!admin}
-                      onChange={admin ? handleChange : undefined}
-                      onDelete={admin ? () => handleDelete(r.id) : undefined}
-                    />
-                  ))}
+                <div className="flex flex-col gap-4">
+                  <FeaturedRaceCard
+                    race={visibleRaces[0]}
+                    readOnly={!admin}
+                    onChange={admin ? handleChange : undefined}
+                    onDelete={
+                      admin ? () => handleDelete(visibleRaces[0].id) : undefined
+                    }
+                  />
+                  {visibleRaces.length > 1 && (
+                    <div className="race-grid">
+                      {visibleRaces.slice(1).map((r) => (
+                        <RaceCard
+                          key={r.id}
+                          race={r}
+                          readOnly={!admin}
+                          onChange={admin ? handleChange : undefined}
+                          onDelete={
+                            admin ? () => handleDelete(r.id) : undefined
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
