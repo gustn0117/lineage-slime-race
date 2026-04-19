@@ -20,7 +20,6 @@ import {
   todayString,
 } from "@/lib/stats";
 import { AppSettings, DEFAULT_SETTINGS, Race } from "@/lib/types";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Props = {
@@ -143,29 +142,29 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
           </div>
         </div>
 
-        <div className="flex items-end gap-3 flex-wrap">
-          <label className="field">
-            날짜
-            <select
-              value={showAll ? "__all__" : selectedDate}
-              onChange={(e) => {
-                if (e.target.value === "__all__") {
-                  setShowAll(true);
-                } else {
-                  setShowAll(false);
-                  setSelectedDate(e.target.value);
-                }
-              }}
-            >
-              <option value="__all__">전체 보기</option>
-              {availableDates.map((d) => (
-                <option key={d} value={d}>
-                  {d} {d === today ? "(오늘)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          {admin && (
+        {admin && (
+          <div className="flex items-end gap-3 flex-wrap">
+            <label className="field">
+              날짜
+              <select
+                value={showAll ? "__all__" : selectedDate}
+                onChange={(e) => {
+                  if (e.target.value === "__all__") {
+                    setShowAll(true);
+                  } else {
+                    setShowAll(false);
+                    setSelectedDate(e.target.value);
+                  }
+                }}
+              >
+                <option value="__all__">전체 보기</option>
+                {availableDates.map((d) => (
+                  <option key={d} value={d}>
+                    {d} {d === today ? "(오늘)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="field">
               최근 N경기
               <input
@@ -185,17 +184,11 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
                 className="w-24"
               />
             </label>
-          )}
-          {admin ? (
             <button type="button" className="btn" onClick={onLogout}>
               로그아웃
             </button>
-          ) : (
-            <Link href="/admin" className="btn">
-              관리자
-            </Link>
-          )}
-        </div>
+          </div>
+        )}
       </header>
 
       {err && (
