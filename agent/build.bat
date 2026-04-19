@@ -1,5 +1,5 @@
 @echo off
-setlocal enableextensions
+setlocal enableextensions enabledelayedexpansion
 cd /d "%~dp0"
 
 echo ================================================
@@ -25,8 +25,35 @@ if not errorlevel 1 (
   pause >nul
 )
 
-if not exist .venv (
-  echo [1/4] Creating virtual environment...
+:: ----------------------------------------------------------------------- ::
+:: Detect requirements.txt change by hashing it and stashing the hash in   ::
+:: .venv\.req-hash. If it differs, nuke .venv and install fresh.           ::
+:: ----------------------------------------------------------------------- ::
+
+set "REQ_HASH="
+for /f "skip=1 tokens=* delims=" %%H in ('certutil -hashfile requirements.txt MD5') do (
+  if not defined REQ_HASH set "REQ_HASH=%%H"
+)
+set "REQ_HASH=!REQ_HASH: =!"
+
+set "HASH_FILE=.venv\.req-hash"
+set "NEED_FRESH=0"
+
+if not exist .venv set "NEED_FRESH=1"
+if exist "!HASH_FILE!" (
+  set /p OLD_HASH=<"!HASH_FILE!"
+  if not "!OLD_HASH!"=="!REQ_HASH!" set "NEED_FRESH=1"
+) else (
+  if exist .venv set "NEED_FRESH=1"
+)
+
+if "!NEED_FRESH!"=="1" (
+  if exist .venv (
+    echo [1/4] requirements.txt changed - recreating virtual environment...
+    rd /s /q .venv
+  ) else (
+    echo [1/4] Creating virtual environment...
+  )
   python -m venv .venv
   if errorlevel 1 goto venvfail
 ) else (
@@ -38,12 +65,19 @@ call .venv\Scripts\activate.bat
 echo [2/4] Upgrading pip...
 python -m pip install --upgrade pip wheel setuptools >nul
 
-echo [3/4] Installing dependencies. First run takes several minutes.
-pip install --prefer-binary -r requirements.txt
-if errorlevel 1 goto depfail
-pip install pyinstaller >nul
+if "!NEED_FRESH!"=="1" (
+  echo [3/4] Installing dependencies. First run takes 5-10 minutes.
+  pip install --prefer-binary -r requirements.txt
+  if errorlevel 1 goto depfail
+  pip install pyinstaller >nul
+  > "!HASH_FILE!" echo !REQ_HASH!
+) else (
+  echo [3/4] Dependencies already installed.
+  pip show pyinstaller >nul 2>&1
+  if errorlevel 1 pip install pyinstaller >nul
+)
 
-echo [4/4] Building executable...
+echo [4/4] Building executable... (5-10 minutes)
 if exist build rd /s /q build
 if exist dist rd /s /q dist
 if exist mahu-agent.spec del mahu-agent.spec
