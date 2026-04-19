@@ -26,13 +26,12 @@ export function SlimeStatsTable({
               <th className="px-3 py-2 text-left font-bold">#</th>
               <th className="px-2 py-2 text-left font-bold">슬라임</th>
               <th className="px-2 py-2 text-left font-bold">최근 승률</th>
-              <th className="px-2 py-2 text-right font-bold">전체</th>
             </tr>
           </thead>
           <tbody>
             {stats.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-2 py-6 text-center text-zinc-500">
+                <td colSpan={3} className="px-2 py-6 text-center text-zinc-500">
                   아직 데이터가 없습니다.
                 </td>
               </tr>
@@ -70,12 +69,6 @@ export function SlimeStatsTable({
                     ) : (
                       <span className="text-zinc-600 text-xs">-</span>
                     )}
-                  </td>
-                  <td className="px-2 py-2 text-right text-xs text-zinc-400 tabular-nums">
-                    {s.total > 0 ? pct(s.winRate) : "-"}
-                    <span className="ml-1 text-zinc-600">
-                      ({s.wins}/{s.total})
-                    </span>
                   </td>
                 </tr>
               );

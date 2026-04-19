@@ -257,8 +257,13 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
                     <div className="past-list">
                       <div className="past-list-head">
                         지난 경기 결과
+                        {visibleRaces.length - 1 > 20 && (
+                          <span className="ml-2 text-zinc-600 normal-case tracking-normal">
+                            (최근 20경기)
+                          </span>
+                        )}
                       </div>
-                      {visibleRaces.slice(1).map((r) => (
+                      {visibleRaces.slice(1, 21).map((r) => (
                         <PastRaceItem
                           key={r.id}
                           race={r}
