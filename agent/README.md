@@ -6,11 +6,16 @@
 ## 빌드 (Windows PC, 최초 1회)
 
 1. 이 `agent/` 폴더를 리니지를 돌리는 Windows PC에 복사.
-2. `build.bat` 더블클릭.
-   - Python 3.10 이상이 설치돼 있지 않으면 안내 메시지가 뜸.
-     [python.org](https://www.python.org/downloads/) 에서 설치 → **"Add to PATH"** 체크.
-   - 가상환경 생성 → 필수 패키지 설치 → PyInstaller로 단일 exe 빌드.
-3. 완료되면 `dist\mahu-agent.exe` 파일이 생성됨. 이 파일만 있으면 됨.
+   - **폴더 경로에 한글이 없는 위치**에 두세요 (예: `C:\agent`).
+     `C:\...\프로그램\agent` 같은 경로는 일부 패키지 빌드가 깨집니다.
+2. **Python 3.12**를 설치하세요 (3.10~3.13 지원).
+   - [python.org/downloads/release/python-3120/](https://www.python.org/downloads/release/python-3120/)
+   - 설치 화면에서 **"Add Python to PATH"** 체크 필수.
+   - Python 3.14 은 현재 numpy/torch/easyocr wheel 미배포라 설치 실패합니다.
+3. `build.bat` 더블클릭.
+   - 가상환경 생성 → 필수 패키지 설치(pre-built wheel만 사용) →
+     PyInstaller로 단일 exe 빌드.
+4. 완료되면 `dist\mahu-agent.exe` 파일이 생성됨. 이 파일만 있으면 됨.
 
 ## 실행
 
