@@ -136,7 +136,7 @@ export default function BannerAdmin({ banners, onChange }: Props) {
             <div className="flex flex-col gap-1">
               <span className="field-label">이미지</span>
               <span className="text-[10px] text-zinc-500">
-                권장 사이즈 1200 × 300 (가로:세로 4:1) · 반응형 · 비율 유지
+                권장 사이즈 1200 × 150 (가로:세로 8:1) · 반응형 · 비율 유지
               </span>
               <div className="flex gap-2 items-start flex-wrap">
                 {imageUrl ? (

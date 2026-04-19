@@ -362,7 +362,7 @@ main {
 .banner {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 1;
+  aspect-ratio: 8 / 1;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--panel-border);
@@ -475,7 +475,7 @@ main {
 
 .banner-admin-preview {
   width: 80px;
-  aspect-ratio: 4 / 1;
+  aspect-ratio: 8 / 1;
   border-radius: 6px;
   overflow: hidden;
   background: #050508;
