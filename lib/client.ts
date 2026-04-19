@@ -130,3 +130,14 @@ export async function apiDeleteBanner(id: string): Promise<void> {
     await fetch(`/api/banners/${id}`, { method: "DELETE" })
   );
 }
+
+export async function apiUploadBannerImage(file: File): Promise<{
+  url: string;
+  path: string;
+}> {
+  const fd = new FormData();
+  fd.append("file", file);
+  return handle<{ url: string; path: string }>(
+    await fetch("/api/banners/upload", { method: "POST", body: fd })
+  );
+}

@@ -461,6 +461,35 @@ main {
   object-fit: cover;
 }
 
+.banner-admin-preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+}
+
+.banner-text-input {
+  width: 100%;
+  font-size: 12px;
+  color: var(--foreground);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 6px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.banner-text-input:focus {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.banner-replace-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
 .banner-admin-body {
   display: flex;
   flex-direction: column;

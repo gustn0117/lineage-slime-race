@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin";
 import { deleteBanner, listBanners, saveBanner } from "@/lib/db";
+import { deleteBannerImage, extractPath } from "@/lib/storage";
 import { Banner } from "@/lib/types";
 
 export async function PATCH(
@@ -53,7 +54,18 @@ export async function DELETE(
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const { id } = await ctx.params;
+  const all = await listBanners();
+  const target = all.find((b) => b.id === id);
   const ok = await deleteBanner(id);
   if (!ok) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  if (target?.imageUrl) {
+    const path = extractPath(target.imageUrl);
+    if (path) {
+      deleteBannerImage(path).catch(() => {
+        /* 파일 삭제 실패는 무시 — 레코드만 제거되어도 OK */
+      });
+    }
+  }
   return NextResponse.json({ ok: true });
 }
