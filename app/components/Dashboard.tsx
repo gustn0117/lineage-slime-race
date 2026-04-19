@@ -1,7 +1,7 @@
 "use client";
 
 import AddRaceForm from "@/app/components/AddRaceForm";
-import RaceRow from "@/app/components/RaceRow";
+import RaceCard from "@/app/components/RaceCard";
 import Slime from "@/app/components/Slime";
 import { LaneStatsBar, SlimeStatsTable } from "@/app/components/StatsPanel";
 import {
@@ -18,7 +18,7 @@ import {
   computeSlimeStats,
   todayString,
 } from "@/lib/stats";
-import { AppSettings, DEFAULT_SETTINGS, LANE_COUNT, Race } from "@/lib/types";
+import { AppSettings, DEFAULT_SETTINGS, Race } from "@/lib/types";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -58,8 +58,8 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
     [races, settings.recentWindow, today]
   );
   const laneStats = useMemo(
-    () => computeLaneStats(races, today),
-    [races, today]
+    () => computeLaneStats(races, settings.recentWindow),
+    [races, settings.recentWindow]
   );
   const visibleRaces = useMemo(() => {
     const filtered = showAll
@@ -68,7 +68,7 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
     return [...filtered].sort((a, b) => {
       const ak = `${a.date} ${a.time}`;
       const bk = `${b.date} ${b.time}`;
-      return ak.localeCompare(bk);
+      return bk.localeCompare(ak);
     });
   }, [races, selectedDate, showAll]);
 
@@ -119,7 +119,7 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
   const totalToday = races.filter((r) => r.date === today).length;
 
   return (
-    <main className="mx-auto w-full max-w-340 p-5 sm:p-7 flex flex-col gap-6">
+    <main className="mx-auto w-full max-w-340 p-4 sm:p-7 flex flex-col gap-6">
       <datalist id="slime-names">
         {slimeOptions.map((n) => (
           <option key={n} value={n} />
@@ -235,61 +235,35 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
                 )}
               </span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="race-table table-fixed">
-                <colgroup>
-                  <col className="w-28" />
-                  {Array.from({ length: LANE_COUNT }, (_, i) => (
-                    <col key={i} />
-                  ))}
-                  <col className="w-10" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>시각</th>
-                    {Array.from({ length: LANE_COUNT }, (_, i) => (
-                      <th key={i}>
-                        <span className="inline-flex items-center gap-1.5 lane-head">
-                          <span className="lane-dot" />
-                          {i + 1}레인
-                        </span>
-                      </th>
-                    ))}
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRaces.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={LANE_COUNT + 2}
-                        className="px-3 py-10 text-center text-sm text-zinc-500"
-                      >
-                        {admin
-                          ? "아직 기록이 없습니다. 위에서 경기를 추가하세요."
-                          : "아직 기록이 없습니다."}
-                      </td>
-                    </tr>
-                  )}
+            <div className="p-3 sm:p-4">
+              {visibleRaces.length === 0 ? (
+                <div className="py-10 text-center text-sm text-zinc-500">
+                  {admin
+                    ? "아직 기록이 없습니다. 위에서 경기를 추가하세요."
+                    : "아직 기록이 없습니다."}
+                </div>
+              ) : (
+                <div className="race-grid">
                   {visibleRaces.map((r) => (
-                    <RaceRow
+                    <RaceCard
                       key={r.id}
                       race={r}
                       readOnly={!admin}
                       onChange={admin ? handleChange : undefined}
-                      onDelete={
-                        admin ? () => handleDelete(r.id) : undefined
-                      }
+                      onDelete={admin ? () => handleDelete(r.id) : undefined}
                     />
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )}
             </div>
           </section>
         </div>
 
         <aside className="flex flex-col gap-5">
-          <LaneStatsBar lanes={laneStats} />
+          <LaneStatsBar
+            lanes={laneStats}
+            recentWindow={settings.recentWindow}
+          />
           <SlimeStatsTable
             stats={slimeStats}
             recentWindow={settings.recentWindow}

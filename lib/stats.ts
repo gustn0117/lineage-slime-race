@@ -76,16 +76,23 @@ export function computeSlimeStats(
   }
 
   return Array.from(all.values()).sort((a, b) => {
-    if (b.wins !== a.wins) return b.wins - a.wins;
-    return b.winRate - a.winRate;
+    if (b.recentWinRate !== a.recentWinRate)
+      return b.recentWinRate - a.recentWinRate;
+    if (b.recentWins !== a.recentWins) return b.recentWins - a.recentWins;
+    if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+    return a.name.localeCompare(b.name, "ko");
   });
 }
 
-export function computeLaneStats(races: Race[], today: string): LaneStat[] {
+export function computeLaneStats(
+  races: Race[],
+  recentWindow: number
+): LaneStat[] {
+  const asc = sortedAsc(races);
+  const recent = asc.slice(Math.max(0, asc.length - recentWindow));
   const out: LaneStat[] = [];
   for (let i = 1; i <= LANE_COUNT; i++) out.push({ lane: i, wins: 0 });
-  for (const r of races) {
-    if (r.date !== today) continue;
+  for (const r of recent) {
     if (r.winnerLane) {
       const s = out.find((x) => x.lane === r.winnerLane);
       if (s) s.wins += 1;

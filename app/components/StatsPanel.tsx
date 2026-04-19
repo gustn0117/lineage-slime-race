@@ -13,13 +13,6 @@ export function SlimeStatsTable({
   stats: SlimeStat[];
   recentWindow: number;
 }) {
-  const ranked = [...stats].sort((a, b) => {
-    if (b.todayWins !== a.todayWins) return b.todayWins - a.todayWins;
-    if (b.recentWinRate !== a.recentWinRate)
-      return b.recentWinRate - a.recentWinRate;
-    return b.winRate - a.winRate;
-  });
-
   return (
     <div className="panel overflow-hidden">
       <div className="panel-head">
@@ -32,20 +25,19 @@ export function SlimeStatsTable({
             <tr className="text-[10px] uppercase tracking-widest text-zinc-500 font-display">
               <th className="px-3 py-2 text-left font-bold">#</th>
               <th className="px-2 py-2 text-left font-bold">슬라임</th>
-              <th className="px-2 py-2 text-right font-bold">오늘</th>
               <th className="px-2 py-2 text-left font-bold">최근 승률</th>
               <th className="px-2 py-2 text-right font-bold">전체</th>
             </tr>
           </thead>
           <tbody>
-            {ranked.length === 0 && (
+            {stats.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-2 py-6 text-center text-zinc-500">
+                <td colSpan={4} className="px-2 py-6 text-center text-zinc-500">
                   아직 데이터가 없습니다.
                 </td>
               </tr>
             )}
-            {ranked.map((s, idx) => {
+            {stats.map((s, idx) => {
               const rank = idx + 1;
               const rankClass =
                 rank <= 3 ? `rank-badge rank-${rank}` : "rank-badge";
@@ -62,26 +54,17 @@ export function SlimeStatsTable({
                   <td className="px-2 py-2 font-semibold text-zinc-100 whitespace-nowrap">
                     {s.name}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums">
-                    <span
-                      className={
-                        s.todayWins > 0
-                          ? "text-white font-bold"
-                          : "text-zinc-600"
-                      }
-                    >
-                      {s.todayWins}
-                    </span>
-                    <span className="text-zinc-600">/{s.todayTotal}</span>
-                  </td>
                   <td className="px-2 py-2">
                     {s.recentTotal > 0 ? (
                       <div className="flex items-center gap-2">
                         <div className="winrate-bar flex-1 min-w-15">
                           <span style={{ width: `${recentWidth}%` }} />
                         </div>
-                        <span className="text-xs tabular-nums text-zinc-200 w-12 text-right">
+                        <span className="text-xs tabular-nums text-zinc-200 w-16 text-right">
                           {pct(s.recentWinRate)}
+                          <span className="ml-1 text-zinc-500">
+                            ({s.recentWins}/{s.recentTotal})
+                          </span>
                         </span>
                       </div>
                     ) : (
@@ -104,14 +87,20 @@ export function SlimeStatsTable({
   );
 }
 
-export function LaneStatsBar({ lanes }: { lanes: LaneStat[] }) {
+export function LaneStatsBar({
+  lanes,
+  recentWindow,
+}: {
+  lanes: LaneStat[];
+  recentWindow: number;
+}) {
   const max = Math.max(1, ...lanes.map((l) => l.wins));
   const total = lanes.reduce((sum, l) => sum + l.wins, 0);
   return (
     <div className="panel overflow-hidden">
       <div className="panel-head">
-        <span>오늘 레인별 승리</span>
-        <span className="chip">총 {total}승</span>
+        <span>레인별 승리</span>
+        <span className="chip">최근 {recentWindow}경기 · 총 {total}승</span>
       </div>
       <div className="grid grid-cols-5 divide-x divide-white/5">
         {lanes.map((l) => {
