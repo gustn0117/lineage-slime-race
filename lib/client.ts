@@ -141,3 +141,12 @@ export async function apiUploadBannerImage(file: File): Promise<{
     await fetch("/api/banners/upload", { method: "POST", body: fd })
   );
 }
+
+export async function apiGetIngestToken(): Promise<{
+  token: string;
+  configured: boolean;
+}> {
+  return handle<{ token: string; configured: boolean }>(
+    await fetch("/api/admin/ingest-token", { cache: "no-store" })
+  );
+}

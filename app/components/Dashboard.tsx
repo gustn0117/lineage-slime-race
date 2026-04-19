@@ -1,6 +1,7 @@
 "use client";
 
 import AddRaceForm from "@/app/components/AddRaceForm";
+import AgentPanel from "@/app/components/AgentPanel";
 import BannerAdmin from "@/app/components/BannerAdmin";
 import BannerCarousel from "@/app/components/BannerCarousel";
 import FeaturedRaceCard from "@/app/components/FeaturedRaceCard";
@@ -216,6 +217,7 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] gap-6">
         <div className="flex flex-col gap-5">
+          {admin && <AgentPanel />}
           {admin && (
             <BannerAdmin banners={banners} onChange={setBanners} />
           )}

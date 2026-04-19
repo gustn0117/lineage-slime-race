@@ -517,6 +517,53 @@ main {
   font-size: 11px;
 }
 
+/* ===== Agent panel ===== */
+.agent-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-readonly {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--foreground);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 7px;
+  padding: 7px 11px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  user-select: all;
+}
+
+.agent-readonly:focus {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.agent-token {
+  letter-spacing: 0.06em;
+}
+
+.agent-hints {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.agent-code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e5e7eb;
+}
+
 .banner-admin-body {
   display: flex;
   flex-direction: column;
