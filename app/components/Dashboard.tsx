@@ -2,7 +2,7 @@
 
 import AddRaceForm from "@/app/components/AddRaceForm";
 import FeaturedRaceCard from "@/app/components/FeaturedRaceCard";
-import RaceCard from "@/app/components/RaceCard";
+import PastRaceItem from "@/app/components/PastRaceItem";
 import Slime from "@/app/components/Slime";
 import { LaneStatsBar, SlimeStatsTable } from "@/app/components/StatsPanel";
 import {
@@ -254,12 +254,15 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
                     }
                   />
                   {visibleRaces.length > 1 && (
-                    <div className="race-grid">
+                    <div className="past-list">
+                      <div className="past-list-head">
+                        지난 경기 결과
+                      </div>
                       {visibleRaces.slice(1).map((r) => (
-                        <RaceCard
+                        <PastRaceItem
                           key={r.id}
                           race={r}
-                          readOnly={!admin}
+                          admin={admin}
                           onChange={admin ? handleChange : undefined}
                           onDelete={
                             admin ? () => handleDelete(r.id) : undefined
