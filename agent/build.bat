@@ -39,12 +39,8 @@ echo [2/4] Upgrading pip...
 python -m pip install --upgrade pip wheel setuptools >nul
 
 echo [3/4] Installing dependencies. First run takes several minutes.
-pip install --only-binary=:all: -r requirements.txt
-if errorlevel 1 (
-  echo [WARN] wheel-only install failed. Retrying with source fallback...
-  pip install -r requirements.txt
-  if errorlevel 1 goto depfail
-)
+pip install --prefer-binary -r requirements.txt
+if errorlevel 1 goto depfail
 pip install pyinstaller >nul
 
 echo [4/4] Building executable...
