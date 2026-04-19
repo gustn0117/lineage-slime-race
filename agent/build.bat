@@ -48,7 +48,7 @@ if exist build rd /s /q build
 if exist dist rd /s /q dist
 if exist mahu-agent.spec del mahu-agent.spec
 
-pyinstaller --noconfirm --onefile --name mahu-agent --collect-all easyocr --collect-submodules pyautogui --exclude-module torch._dynamo --exclude-module torch._numpy --exclude-module torch.distributed --exclude-module torch.testing --exclude-module torch.onnx agent.py
+pyinstaller --noconfirm --onefile --name mahu-agent --collect-all easyocr --collect-all torch --collect-submodules pyautogui agent.py
 if errorlevel 1 goto buildfail
 
 echo.
