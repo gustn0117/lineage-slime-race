@@ -41,3 +41,13 @@ export interface LaneStat {
   lane: number;
   wins: number;          // 오늘 기준
 }
+
+export interface Banner {
+  id: string;
+  imageUrl: string;
+  linkUrl?: string;
+  title?: string;
+  enabled: boolean;
+  order: number;
+  createdAt: number;
+}

@@ -6,6 +6,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import {
   AppSettings,
+  Banner,
   DEFAULT_SETTINGS,
   Race,
 } from "./types";
@@ -13,6 +14,7 @@ import {
 const DATA_DIR = path.join(process.cwd(), "data");
 const RACES_FILE = path.join(DATA_DIR, "races.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+const BANNERS_FILE = path.join(DATA_DIR, "banners.json");
 
 async function ensureDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
@@ -80,4 +82,26 @@ export async function saveSettings(
   const next = { ...cur, ...patch };
   await writeJson(SETTINGS_FILE, next);
   return next;
+}
+
+export async function listBanners(): Promise<Banner[]> {
+  const banners = await readJson<Banner[]>(BANNERS_FILE, []);
+  return [...banners].sort((a, b) => a.order - b.order);
+}
+
+export async function saveBanner(banner: Banner): Promise<Banner> {
+  const all = await listBanners();
+  const idx = all.findIndex((b) => b.id === banner.id);
+  if (idx >= 0) all[idx] = banner;
+  else all.push(banner);
+  await writeJson(BANNERS_FILE, all);
+  return banner;
+}
+
+export async function deleteBanner(id: string): Promise<boolean> {
+  const all = await listBanners();
+  const next = all.filter((b) => b.id !== id);
+  if (next.length === all.length) return false;
+  await writeJson(BANNERS_FILE, next);
+  return true;
 }

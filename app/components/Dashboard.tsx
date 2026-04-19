@@ -1,6 +1,8 @@
 "use client";
 
 import AddRaceForm from "@/app/components/AddRaceForm";
+import BannerAdmin from "@/app/components/BannerAdmin";
+import BannerCarousel from "@/app/components/BannerCarousel";
 import FeaturedRaceCard from "@/app/components/FeaturedRaceCard";
 import PastRaceItem from "@/app/components/PastRaceItem";
 import Slime from "@/app/components/Slime";
@@ -8,6 +10,7 @@ import { LaneStatsBar, SlimeStatsTable } from "@/app/components/StatsPanel";
 import {
   apiDeleteRace,
   apiGetSettings,
+  apiListBanners,
   apiListRaces,
   apiPatchRace,
   apiSaveRace,
@@ -19,7 +22,7 @@ import {
   computeSlimeStats,
   todayString,
 } from "@/lib/stats";
-import { AppSettings, DEFAULT_SETTINGS, Race } from "@/lib/types";
+import { AppSettings, Banner, DEFAULT_SETTINGS, Race } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Props = {
@@ -30,6 +33,7 @@ type Props = {
 export default function Dashboard({ admin = false, onLogout }: Props) {
   const [races, setRaces] = useState<Race[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(todayString());
@@ -37,9 +41,14 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      const [r, s] = await Promise.all([apiListRaces(), apiGetSettings()]);
+      const [r, s, bn] = await Promise.all([
+        apiListRaces(),
+        apiGetSettings(),
+        apiListBanners(),
+      ]);
       setRaces(r);
       setSettings(s);
+      setBanners(bn);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "로딩 실패");
     } finally {
@@ -126,6 +135,8 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
         ))}
       </datalist>
 
+      <BannerCarousel banners={banners} />
+
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/8 pb-5">
         <div className="flex items-center gap-3">
           <Slime size={36} />
@@ -205,6 +216,9 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] gap-6">
         <div className="flex flex-col gap-5">
+          {admin && (
+            <BannerAdmin banners={banners} onChange={setBanners} />
+          )}
           {admin && (
             <AddRaceForm existingRaces={races} onAdd={handleAdd} />
           )}

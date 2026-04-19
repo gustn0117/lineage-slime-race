@@ -1,6 +1,6 @@
 // 클라이언트용 API 래퍼
 
-import { AppSettings, Race } from "./types";
+import { AppSettings, Banner, Race } from "./types";
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -88,5 +88,45 @@ export async function apiAdminLogin(password: string): Promise<void> {
 export async function apiAdminLogout(): Promise<void> {
   await handle<{ ok: true }>(
     await fetch("/api/admin/logout", { method: "POST" })
+  );
+}
+
+export async function apiListBanners(): Promise<Banner[]> {
+  const { banners } = await handle<{ banners: Banner[] }>(
+    await fetch("/api/banners", { cache: "no-store" })
+  );
+  return banners;
+}
+
+export async function apiSaveBanner(
+  banner: Partial<Banner>
+): Promise<Banner> {
+  const { banner: saved } = await handle<{ banner: Banner }>(
+    await fetch("/api/banners", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(banner),
+    })
+  );
+  return saved;
+}
+
+export async function apiPatchBanner(
+  id: string,
+  patch: Partial<Banner>
+): Promise<Banner> {
+  const { banner } = await handle<{ banner: Banner }>(
+    await fetch(`/api/banners/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    })
+  );
+  return banner;
+}
+
+export async function apiDeleteBanner(id: string): Promise<void> {
+  await handle<{ ok: true }>(
+    await fetch(`/api/banners/${id}`, { method: "DELETE" })
   );
 }

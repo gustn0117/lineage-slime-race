@@ -358,6 +358,166 @@ main {
   background: rgba(0, 0, 0, 0.25);
 }
 
+/* ===== Banner ===== */
+.banner {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  background: #0a0a0e;
+  line-height: 0;
+}
+
+.banner-link,
+.banner-link:hover {
+  display: block;
+  cursor: pointer;
+}
+
+.banner-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  max-height: 240px;
+  object-fit: cover;
+}
+
+.banner-dots {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.banner-dots button {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.4);
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  transition: background 120ms, transform 120ms;
+}
+
+.banner-dots button:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.banner-dots button.active {
+  background: #fff;
+  transform: scale(1.25);
+}
+
+/* ===== Banner admin ===== */
+.panel-head.w-full {
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--panel-border);
+  color: #f4f4f5;
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.panel-head.w-full:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.banner-admin-row {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  align-items: start;
+}
+
+.banner-admin-preview {
+  width: 80px;
+  height: 60px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #050508;
+  border: 1px solid var(--panel-border);
+}
+
+.banner-admin-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.banner-admin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.banner-admin-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.banner-admin-fields input {
+  width: 100%;
+  font-size: 12px;
+  color: var(--foreground);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 6px;
+  padding: 5px 8px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.banner-admin-fields input:focus {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.banner-admin-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.banner-admin-actions .btn {
+  padding: 4px 8px;
+  font-size: 13px;
+  min-width: 32px;
+}
+
+.banner-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.banner-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--gold);
+}
+
 .race-card {
   border: 1px solid var(--panel-border);
   border-radius: 12px;
