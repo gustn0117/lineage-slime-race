@@ -355,6 +355,12 @@ def _debug_dir() -> Path:
 class Agent:
     def __init__(self, cfg: dict):
         self.cfg = cfg
+        # 인식률을 위해 최소값 강제
+        self.cfg["hover_wait_ms"] = max(int(self.cfg.get("hover_wait_ms", 500)), 500)
+        tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
+        if tb.get("w", 0) < 220 or tb.get("h", 0) < 48:
+            self.cfg["tooltip_bbox"] = {"dx": -110, "dy": -60, "w": 220, "h": 50}
+
         print("[init] EasyOCR 로드 중... (최초 실행 시 모델 다운로드로 1~2분 소요)")
         import easyocr  # 지연 import
 
@@ -365,6 +371,10 @@ class Agent:
         self.seen_lines: set[str] = set()
         # 실패한 레인 재시도를 위한 부분 라인업
         self.partial_lineup: dict[int, dict] = {}
+        # 스레드 안전: 읽기는 한 번에 한 스레드만
+        self._ocr_lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._dialog_thread: Optional[threading.Thread] = None
         if DEBUG_OCR:
             print(f"[init] AGENT_DEBUG_OCR 켜짐. 캡처 결과를 {_debug_dir()} 에 저장합니다.")
         print("[init] 준비 완료.")
@@ -410,10 +420,13 @@ class Agent:
 
     # ----- 라인업 스캔 ---------------------------------------------------- #
 
-    def _ocr(self, img: np.ndarray, tag: str = "") -> str:
-        processed = _preprocess_for_ocr(img)
+    def _ocr(self, img: np.ndarray, tag: str = "", scale: int = 3) -> str:
+        processed = _preprocess_for_ocr(img, scale=scale)
         try:
-            lines = self.reader.readtext(processed, detail=0, paragraph=True)
+            with self._ocr_lock:
+                lines = self.reader.readtext(
+                    processed, detail=0, paragraph=True
+                )
         except Exception as e:
             print(f"  [ocr error] {e}")
             return ""
@@ -498,12 +511,25 @@ class Agent:
 
     # ----- 대화창 스캔 ---------------------------------------------------- #
 
-    def _scan_dialog(self) -> None:
+    def _grab_rgb_with(
+        self, sct, left: int, top: int, width: int, height: int
+    ) -> np.ndarray:
+        shot = sct.grab(
+            {"left": left, "top": top, "width": width, "height": height}
+        )
+        arr = np.array(shot)
+        return arr[:, :, [2, 1, 0]]
+
+    def _scan_dialog(self, sct=None) -> None:
+        sct = sct or self.sct
         d = self.cfg["dialog"]
-        img = self._grab_rgb(d["x"], d["y"], d["w"], d["h"])
+        img = self._grab_rgb_with(sct, d["x"], d["y"], d["w"], d["h"])
         processed = _preprocess_for_ocr(img, scale=2)
         try:
-            lines = self.reader.readtext(processed, detail=0, paragraph=False)
+            with self._ocr_lock:
+                lines = self.reader.readtext(
+                    processed, detail=0, paragraph=False
+                )
         except Exception as e:
             print(f"  [dialog ocr error] {e}")
             return
@@ -577,10 +603,32 @@ class Agent:
 
     # ----- 메인 루프 ------------------------------------------------------ #
 
+    def _dialog_loop(self) -> None:
+        """대화창 OCR 전용 스레드. 0.3초 간격으로 계속 훑는다."""
+        try:
+            sct = mss.mss()
+        except Exception as e:
+            print(f"[dialog thread] mss 초기화 실패: {e}")
+            return
+        dialog_interval = float(self.cfg.get("dialog_interval_sec", 0.3))
+        while not self._stop_event.is_set():
+            try:
+                self._scan_dialog(sct)
+            except Exception as e:
+                print(f"[dialog thread error] {e}")
+            self._stop_event.wait(dialog_interval)
+
     def loop(self) -> None:
-        interval = float(self.cfg.get("poll_interval_sec", 1.5))
+        interval = float(self.cfg.get("poll_interval_sec", 1.0))
         running = False
         lineup_sent = False
+
+        # 대화창 OCR은 별도 스레드에서 계속 돌림 → 우승자 메시지 즉시 감지
+        self._dialog_thread = threading.Thread(
+            target=self._dialog_loop, daemon=True, name="dialog-ocr"
+        )
+        self._dialog_thread.start()
+        print("[loop] 대화창 감시 스레드 시작 (0.3초 간격)")
 
         while True:
             try:
@@ -619,15 +667,16 @@ class Agent:
                     running = False
                     self.partial_lineup = {}
                     lineup_sent = False
-
-                self._scan_dialog()
             except KeyboardInterrupt:
                 print("\n중단 요청. 종료합니다.")
+                self._stop_event.set()
                 return
             except Exception as e:
                 print(f"[loop error] {e}")
 
-            time.sleep(interval)
+            # 슬라임 있을 땐 짧은 간격으로 계속 재시도(겹친 캐릭터 비켜날 때까지),
+            # 없을 땐 긴 간격으로 CPU 아낌
+            time.sleep(interval if not running else 0.6)
 
 
 # --------------------------------------------------------------------------- #
