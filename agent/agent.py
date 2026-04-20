@@ -346,11 +346,19 @@ def _preprocess_for_ocr(img: np.ndarray, scale: int = 3) -> np.ndarray:
     if h == 0 or w == 0:
         return img
     pil = Image.fromarray(img)
-    pil = pil.resize((w * scale, h * scale), Image.LANCZOS)
+    pil = pil.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
     pil = ImageEnhance.Contrast(pil).enhance(1.7)
     pil = ImageEnhance.Sharpness(pil).enhance(1.6)
     pil = pil.filter(ImageFilter.DETAIL)
     return np.array(pil)
+
+
+# 슬라임 툴팁용 화이트리스트: 한글 음절 + 숫자 + '#' + 공백 + 영문 (영문 이름 슬라임 대비)
+_TOOLTIP_ALLOWLIST = (
+    "#0123456789 "
+    + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    + "".join(chr(i) for i in range(0xAC00, 0xD7A4))
+)
 
 
 def _debug_dir() -> Path:
@@ -414,9 +422,9 @@ class Agent:
         """EasyOCR 결과를 알려진 슬라임 이름과 가장 가까운 값으로 보정."""
         if not raw or not self.known_slimes:
             return raw
-        # cutoff 0.5 = 반절 정도 유사하면 매칭. 너무 낮추면 오매칭 위험.
+        # cutoff 0.4 = 40% 이상 유사하면 매칭. 게임 폰트가 계단식이라 비교적 공격적으로 잡음.
         matches = difflib.get_close_matches(
-            raw, self.known_slimes, n=1, cutoff=0.5
+            raw, self.known_slimes, n=1, cutoff=0.4
         )
         if not matches:
             return raw
@@ -466,13 +474,20 @@ class Agent:
 
     # ----- 라인업 스캔 ---------------------------------------------------- #
 
-    def _ocr(self, img: np.ndarray, tag: str = "", scale: int = 3) -> str:
+    def _ocr(
+        self,
+        img: np.ndarray,
+        tag: str = "",
+        scale: float = 3.0,
+        allowlist: Optional[str] = None,
+    ) -> str:
         processed = _preprocess_for_ocr(img, scale=scale)
+        kwargs: dict = {"detail": 0, "paragraph": True}
+        if allowlist:
+            kwargs["allowlist"] = allowlist
         try:
             with self._ocr_lock:
-                lines = self.reader.readtext(
-                    processed, detail=0, paragraph=True
-                )
+                lines = self.reader.readtext(processed, **kwargs)
         except Exception as e:
             print(f"  [ocr error] {e}")
             return ""
@@ -503,7 +518,10 @@ class Agent:
             tb["w"],
             tb["h"],
         )
-        text = self._ocr(img, tag=f"lane{lane_no}")
+        # 툴팁은 '#숫자 이름' 형식이므로 화이트리스트 + 5배 확대로 정확도 극대화
+        text = self._ocr(
+            img, tag=f"lane{lane_no}", scale=5, allowlist=_TOOLTIP_ALLOWLIST
+        )
         num, name = self._parse_tooltip(text)
         ok = num is not None and name and len(name) >= 2
         status = "OK" if ok else "MISS"
@@ -571,7 +589,8 @@ class Agent:
         sct = sct or self.sct
         d = self.cfg["dialog"]
         img = self._grab_rgb_with(sct, d["x"], d["y"], d["w"], d["h"])
-        processed = _preprocess_for_ocr(img, scale=2)
+        # 대화창 글자는 툴팁보다 큼. 1.6배 정도만 확대해도 충분. 속도 우선.
+        processed = _preprocess_for_ocr(img, scale=1.6)
         try:
             with self._ocr_lock:
                 lines = self.reader.readtext(
@@ -671,7 +690,7 @@ class Agent:
         except Exception as e:
             print(f"[dialog thread] mss 초기화 실패: {e}")
             return
-        dialog_interval = float(self.cfg.get("dialog_interval_sec", 0.3))
+        dialog_interval = float(self.cfg.get("dialog_interval_sec", 0.15))
         while not self._stop_event.is_set():
             try:
                 self._scan_dialog(sct)
