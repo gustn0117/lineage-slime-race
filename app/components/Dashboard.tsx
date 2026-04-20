@@ -38,7 +38,9 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(todayString());
-  const [showAll, setShowAll] = useState(false);
+  // 기본값을 '전체 보기'로 — 자정이 지나도 과거 기록이 사라지지 않음.
+  // 관리자는 날짜 드롭다운으로 특정 일자만 필터 가능.
+  const [showAll, setShowAll] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
