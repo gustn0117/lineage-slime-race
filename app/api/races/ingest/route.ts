@@ -85,6 +85,8 @@ type Body =
       winnerName: string;
       winnerNumber?: number;
       round?: number;
+      date?: string;
+      time?: string;
     };
 
 export async function POST(req: NextRequest) {
@@ -169,8 +171,8 @@ export async function POST(req: NextRequest) {
       }
       const race: Race = {
         id: makeId(),
-        date: todayStr(),
-        time: currentTimeStr(),
+        date: body.date ?? todayStr(),
+        time: body.time ?? currentTimeStr(),
         lanes: fallbackLanes,
         winnerLane: 1,
         createdAt: Date.now(),

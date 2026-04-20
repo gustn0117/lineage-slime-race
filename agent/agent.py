@@ -817,6 +817,10 @@ class Agent:
         self.recent_winners[sig] = now
 
         print(f"  [마후] {round_no}회 우승: #{num} {corrected_name}")
+        # 클라이언트 로컬 시간도 같이 전송 → 서버 TZ 무관하게 fallback race도 한국 시간 사용
+        now_struct = time.localtime()
+        date_str = time.strftime("%Y-%m-%d", now_struct)
+        time_str = time.strftime("%H:%M", now_struct)
         try:
             r = requests.post(
                 f"{self.cfg['server_url']}/api/races/ingest",
@@ -829,6 +833,8 @@ class Agent:
                     "round": round_no,
                     "winnerNumber": num,
                     "winnerName": corrected_name,
+                    "date": date_str,
+                    "time": time_str,
                 },
                 timeout=10,
             )
@@ -861,6 +867,7 @@ class Agent:
         interval = float(self.cfg.get("poll_interval_sec", 1.0))
         running = False
         lineup_sent = False
+        last_aman_ts: Optional[float] = None
 
         # 대화창 OCR은 별도 스레드에서 계속 돌림 → 우승자 메시지 즉시 감지
         self._dialog_thread = threading.Thread(
@@ -872,10 +879,24 @@ class Agent:
         while True:
             try:
                 has_slime = self._any_lane_has_slime()
+                aman_ts = self.aman_trigger_ts
+
+                # 새 아만 알림이 들어왔으면 (이전 경기 상태가 남아있더라도)
+                # 강제로 상태를 리셋하고 이번 회차를 새로 스캔한다.
+                if aman_ts is not None and aman_ts != last_aman_ts:
+                    if last_aman_ts is not None:
+                        print(
+                            f"[{time.strftime('%H:%M:%S')}] 새 아만 알림 감지 → 이전 상태 리셋, 라인업 재스캔"
+                        )
+                    last_aman_ts = aman_ts
+                    running = False
+                    lineup_sent = False
+                    self.partial_lineup = {}
+                    self.race_started = False
+
                 # 아만 알림 이후 ~3분 동안은 "곧 경기" 상태로 간주
                 aman_active = (
-                    self.aman_trigger_ts is not None
-                    and (time.time() - self.aman_trigger_ts) < 180
+                    aman_ts is not None and (time.time() - aman_ts) < 180
                 )
                 # 트리거 또는 노란 슬라임 감지 → 스캔 상태로 전환
                 should_scan = aman_active or has_slime
