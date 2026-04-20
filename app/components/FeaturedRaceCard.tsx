@@ -80,66 +80,55 @@ export default function FeaturedRaceCard({
           </button>
         )}
       </div>
-      <div className="race-featured-wrap">
-        <div className="race-featured-lanes">
-          {Array.from({ length: LANE_COUNT }, (_, i) => {
-            const lane = race.lanes[i];
-            const isWinner = race.winnerLane === i + 1;
-            const hasData = lane.slime.trim().length > 0;
-            return (
-              <div
-                key={i}
-                className={`lane-col ${isWinner ? "lane-bg-winner" : ""}`}
-              >
-                <div className="lane-col-label">
-                  <span className="lane-dot" />
-                  {i + 1}레인
-                </div>
+      <div className="race-card-lanes">
+        {Array.from({ length: LANE_COUNT }, (_, i) => {
+          const lane = race.lanes[i];
+          const isWinner = race.winnerLane === i + 1;
+          const hasData = lane.slime.trim().length > 0;
+          return (
+            <div
+              key={i}
+              className={`lane-row ${isWinner ? "lane-bg-winner" : ""}`}
+            >
+              <span className="lane-label">
+                <span className="lane-dot" />
+                {i + 1}레인
+              </span>
 
-                {readOnly ? (
-                  <>
-                    <div
-                      className={`lane-col-name ${
-                        hasData ? "" : "text-zinc-700"
-                      }`}
-                      title={lane.slime}
-                    >
-                      {lane.slime || "-"}
-                    </div>
-                    <div className="lane-col-star-row">
-                      {isWinner ? (
-                        <span className="winner-star">★</span>
-                      ) : (
-                        <span className="winner-star-placeholder" />
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      list="slime-names"
-                      value={lane.slime}
-                      onChange={(e) => setLane(i, { slime: e.target.value })}
-                      className="slime-input-lg"
-                      placeholder="슬라임"
-                    />
-                    <div className="lane-col-star-row">
-                      <button
-                        type="button"
-                        onClick={() => setWinner(i + 1)}
-                        disabled={!hasData}
-                        title={isWinner ? "우승 취소" : "우승 지정"}
-                        className={`star-btn ${isWinner ? "is-winner" : ""}`}
-                      >
-                        ★
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              {readOnly ? (
+                <>
+                  <span
+                    className={`lane-name-display ${
+                      hasData ? "" : "text-zinc-700"
+                    } ${isWinner ? "is-winner" : ""}`}
+                  >
+                    {lane.slime || "-"}
+                  </span>
+                  {isWinner && <span className="winner-star">★</span>}
+                </>
+              ) : (
+                <>
+                  <input
+                    list="slime-names"
+                    value={lane.slime}
+                    onChange={(e) => setLane(i, { slime: e.target.value })}
+                    className="slime-input"
+                    placeholder="슬라임 이름"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setWinner(i + 1)}
+                    disabled={!hasData}
+                    title={isWinner ? "우승 취소" : "우승 지정"}
+                    className={`star-btn ${isWinner ? "is-winner" : ""}`}
+                  >
+                    ★
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
