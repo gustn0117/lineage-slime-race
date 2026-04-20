@@ -757,9 +757,18 @@ class Agent:
             m = AMAN_PREMATCH_PATTERN.search(line)
             if m:
                 minutes = int(m.group(1))
-                if self.aman_trigger_ts is None:
-                    print(f"  [아만] 경기 시작 {minutes}분 전 알림 → 라인업 스캔 트리거")
-                    self.aman_trigger_ts = time.time()
+                now = time.time()
+                # trigger가 없거나, 5분 넘게 오래됐으면(이전 경기 것이 남아있을 수 있음)
+                # 새로 설정. 즉 매 경기마다 fresh aman 알림은 항상 반영됨.
+                stale = (
+                    self.aman_trigger_ts is None
+                    or now - self.aman_trigger_ts > 300
+                )
+                if stale:
+                    print(
+                        f"  [아만] 경기 시작 {minutes}분 전 알림 → 라인업 스캔 트리거"
+                    )
+                    self.aman_trigger_ts = now
                 break
 
         # 아만 "시작!" — 라인업 재시도 중단 신호
@@ -926,7 +935,9 @@ class Agent:
                     self.partial_lineup = {}
                     lineup_sent = False
                     self.race_started = False
-                    # 다음 경기 대비: 알려진 슬라임 이름 갱신 + winner dedup 리셋
+                    # 다음 경기의 '1분전' 알림을 새로 받도록 trigger도 clear
+                    self.aman_trigger_ts = None
+                    # 다음 경기 대비: 알려진 슬라임 이름 갱신
                     self._fetch_known_slimes()
             except KeyboardInterrupt:
                 print("\n중단 요청. 종료합니다.")
