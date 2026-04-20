@@ -43,6 +43,7 @@ from tkinter import messagebox
 import numpy as np
 import pyautogui
 import requests
+from PIL import Image, ImageEnhance, ImageFilter
 
 # mss / easyocr / pyautogui는 import 시 초기화 비용이 있음.
 # easyocr은 Agent 인스턴스 만들 때 한 번만 로드.
@@ -315,9 +316,40 @@ class SetupWindow:
 # --------------------------------------------------------------------------- #
 
 
+# 마후 라인 패턴. OCR이 글자를 흘려도 "마X" + 숫자 + "회" + 우승/씌스/승자 + 번호 + 이름 순서만 맞으면 매칭.
 MAHU_PATTERN = re.compile(
-    r"마후.*?제\s*(\d+)\s*회.*?우승자는\s*[\"'“”]?\s*#?\s*(\d+)\s+(\S[^\"'“”]*?)[\"'“”]?\s*입니다"
+    r"마\S{0,2}\s*[:：]?.*?제\s*(\d+)\s*회.*?(?:우승|우{1,2}승|승자).*?[#＃]?\s*(\d+)\s+([^\s\"'“”]+)"
 )
+
+DEBUG_OCR = os.environ.get("AGENT_DEBUG_OCR", "").strip().lower() not in (
+    "",
+    "0",
+    "false",
+    "no",
+)
+
+
+def _preprocess_for_ocr(img: np.ndarray, scale: int = 3) -> np.ndarray:
+    """작은 픽셀 글자를 OCR에 먹이기 전에 확대 + 대비/샤픈."""
+    h, w = img.shape[:2]
+    if h == 0 or w == 0:
+        return img
+    pil = Image.fromarray(img)
+    pil = pil.resize((w * scale, h * scale), Image.LANCZOS)
+    pil = ImageEnhance.Contrast(pil).enhance(1.7)
+    pil = ImageEnhance.Sharpness(pil).enhance(1.6)
+    pil = pil.filter(ImageFilter.DETAIL)
+    return np.array(pil)
+
+
+def _debug_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
+    else:
+        base = Path(__file__).parent
+    d = base / "debug"
+    d.mkdir(exist_ok=True)
+    return d
 
 
 class Agent:
@@ -331,7 +363,22 @@ class Agent:
         self.last_lineup_sig: Optional[str] = None
         self.last_winner_key: Optional[str] = None
         self.seen_lines: set[str] = set()
+        # 실패한 레인 재시도를 위한 부분 라인업
+        self.partial_lineup: dict[int, dict] = {}
+        if DEBUG_OCR:
+            print(f"[init] AGENT_DEBUG_OCR 켜짐. 캡처 결과를 {_debug_dir()} 에 저장합니다.")
         print("[init] 준비 완료.")
+
+    def _dbg_save(self, name: str, img: np.ndarray, text: str = "") -> None:
+        if not DEBUG_OCR:
+            return
+        try:
+            ts = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+            Image.fromarray(img).save(_debug_dir() / f"{ts}_{name}.png")
+            if text:
+                (_debug_dir() / f"{ts}_{name}.txt").write_text(text, encoding="utf-8")
+        except Exception:
+            pass
 
     # ----- 색상 감지 ------------------------------------------------------ #
 
@@ -363,43 +410,69 @@ class Agent:
 
     # ----- 라인업 스캔 ---------------------------------------------------- #
 
-    def _ocr(self, img: np.ndarray) -> str:
+    def _ocr(self, img: np.ndarray, tag: str = "") -> str:
+        processed = _preprocess_for_ocr(img)
         try:
-            lines = self.reader.readtext(img, detail=0, paragraph=True)
+            lines = self.reader.readtext(processed, detail=0, paragraph=True)
         except Exception as e:
             print(f"  [ocr error] {e}")
             return ""
-        return " ".join(l.strip() for l in lines if l).strip()
+        text = " ".join(l.strip() for l in lines if l).strip()
+        if DEBUG_OCR and tag:
+            self._dbg_save(f"{tag}-raw", img)
+            self._dbg_save(f"{tag}-proc", processed, text)
+        return text
 
     def _parse_tooltip(self, text: str) -> tuple[Optional[int], str]:
-        t = text.replace("#", "# ")
-        m = re.search(r"#\s*(\d+)\s+(\S.*)", t)
+        t = text.replace("#", "# ").replace("＃", "# ")
+        m = re.search(r"#\s*(\d+)\s*[.,]?\s*([^\s#]+)", t)
         if m:
             return int(m.group(1)), m.group(2).strip()
-        m2 = re.search(r"(\d+)\s+(\S.*)", t)
+        m2 = re.search(r"(\d+)\s+([^\s#]+)", t)
         if m2:
             return int(m2.group(1)), m2.group(2).strip()
         return None, t.strip()
 
-    def _scan_lineup(self) -> list[dict]:
-        results: list[dict] = []
+    def _scan_one_lane(self, lane_no: int, lane: dict) -> Optional[dict]:
         tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
         hover_ms = self.cfg.get("hover_wait_ms", 280)
-        for i, lane in enumerate(self.cfg["lanes"]):
-            pyautogui.moveTo(lane["x"], lane["y"], duration=0.08)
-            time.sleep(hover_ms / 1000)
-            img = self._grab_rgb(
-                lane["x"] + tb["dx"],
-                lane["y"] + tb["dy"],
-                tb["w"],
-                tb["h"],
-            )
-            text = self._ocr(img)
-            num, name = self._parse_tooltip(text)
-            print(f"    레인{i+1}: '{text}' → #{num} {name}")
-            results.append({"lane": i + 1, "slime": name, "number": num})
+        pyautogui.moveTo(lane["x"], lane["y"], duration=0.08)
+        time.sleep(hover_ms / 1000)
+        img = self._grab_rgb(
+            lane["x"] + tb["dx"],
+            lane["y"] + tb["dy"],
+            tb["w"],
+            tb["h"],
+        )
+        text = self._ocr(img, tag=f"lane{lane_no}")
+        num, name = self._parse_tooltip(text)
+        ok = num is not None and name and len(name) >= 2
+        status = "OK" if ok else "MISS"
+        print(f"    레인{lane_no}: '{text}' → #{num} {name} [{status}]")
+        if not ok:
+            return None
+        return {"lane": lane_no, "slime": name, "number": num}
+
+    def _scan_missing_lanes(self) -> None:
+        """partial_lineup에서 아직 채워지지 않은 레인만 재시도."""
+        missing = [
+            (i + 1, lane)
+            for i, lane in enumerate(self.cfg["lanes"])
+            if (i + 1) not in self.partial_lineup
+        ]
+        if not missing:
+            return
+        print(f"  [retry] 미채움 레인 {[m[0] for m in missing]} 재스캔")
+        for lane_no, lane in missing:
+            got = self._scan_one_lane(lane_no, lane)
+            if got:
+                self.partial_lineup[lane_no] = got
         pyautogui.moveTo(10, 10, duration=0.15)
-        return results
+
+    def _full_lineup_or_none(self) -> Optional[list[dict]]:
+        if len(self.partial_lineup) < len(self.cfg["lanes"]):
+            return None
+        return [self.partial_lineup[i + 1] for i in range(len(self.cfg["lanes"]))]
 
     def _send_lineup(self, lanes: list[dict]) -> None:
         sig = json.dumps(lanes, ensure_ascii=False, sort_keys=True)
@@ -428,12 +501,21 @@ class Agent:
     def _scan_dialog(self) -> None:
         d = self.cfg["dialog"]
         img = self._grab_rgb(d["x"], d["y"], d["w"], d["h"])
+        processed = _preprocess_for_ocr(img, scale=2)
         try:
-            lines = self.reader.readtext(img, detail=0, paragraph=False)
+            lines = self.reader.readtext(processed, detail=0, paragraph=False)
         except Exception as e:
             print(f"  [dialog ocr error] {e}")
             return
 
+        # 한 줄로 병합된 OCR 결과에서 마후 패턴도 찾을 수 있도록 join된 버전도 사용
+        joined = " ".join(l.strip() for l in lines if l).strip()
+
+        if DEBUG_OCR:
+            self._dbg_save("dialog-raw", img)
+            self._dbg_save("dialog-proc", processed, joined)
+
+        new_lines = []
         for raw in lines:
             line = raw.strip()
             if not line:
@@ -442,13 +524,22 @@ class Agent:
             if key in self.seen_lines:
                 continue
             self.seen_lines.add(key)
+            new_lines.append(line)
 
+        # 합친 전체 텍스트에서도 마후 패턴 검색 (라인이 두 줄로 나뉘어 읽힐 때 대비)
+        candidates = new_lines + [joined] if new_lines else []
+        for line in candidates:
             m = MAHU_PATTERN.search(line)
             if m:
                 round_no = int(m.group(1))
                 num = int(m.group(2))
                 name = m.group(3).strip()
                 self._handle_winner(round_no, num, name, line)
+                break
+
+        # 매 스캔마다 OCR이 본 것을 항상 짧게 로그 (디버깅)
+        if new_lines:
+            print(f"  [dialog] {len(new_lines)}줄: {(' | '.join(new_lines))[:200]}")
 
         if len(self.seen_lines) > 300:
             self.seen_lines = set(list(self.seen_lines)[-150:])
@@ -489,21 +580,45 @@ class Agent:
     def loop(self) -> None:
         interval = float(self.cfg.get("poll_interval_sec", 1.5))
         running = False
-        scanned = False
+        lineup_sent = False
 
         while True:
             try:
                 has_slime = self._any_lane_has_slime()
-                if has_slime and not scanned:
-                    print(f"[{time.strftime('%H:%M:%S')}] 경기 시작 감지 → 라인업 스캔")
-                    lineup = self._scan_lineup()
-                    self._send_lineup(lineup)
-                    scanned = True
-                    running = True
-                elif not has_slime and running:
+
+                if has_slime:
+                    if not running:
+                        print(f"[{time.strftime('%H:%M:%S')}] 경기 시작 감지 → 라인업 스캔")
+                        running = True
+                        self.partial_lineup = {}
+                        lineup_sent = False
+                    # 아직 안 찬 레인만 다시 호버
+                    if not lineup_sent:
+                        self._scan_missing_lanes()
+                        full = self._full_lineup_or_none()
+                        if full:
+                            self._send_lineup(full)
+                            lineup_sent = True
+                elif running:
+                    # 슬라임이 안 보이면 경기 종료. 부분 라인업이라도 한 번 보냄.
+                    if not lineup_sent and self.partial_lineup:
+                        print(
+                            f"  [warn] 경기 종료 직전까지 레인 {sorted(self.partial_lineup.keys())}만 확보됨. 부분 라인업 전송."
+                        )
+                        partial = []
+                        for i in range(len(self.cfg["lanes"])):
+                            ln = i + 1
+                            partial.append(
+                                self.partial_lineup.get(
+                                    ln, {"lane": ln, "slime": "", "number": None}
+                                )
+                            )
+                        self._send_lineup(partial)
+                        lineup_sent = True
                     print(f"[{time.strftime('%H:%M:%S')}] 경기 종료 감지 → 대기")
                     running = False
-                    scanned = False
+                    self.partial_lineup = {}
+                    lineup_sent = False
 
                 self._scan_dialog()
             except KeyboardInterrupt:
