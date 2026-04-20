@@ -770,10 +770,10 @@ main {
   background: var(--gold);
   color: #0a0a0a;
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .race-featured-time {

@@ -49,7 +49,7 @@ export default function FeaturedRaceCard({
     <div className="race-featured">
       <div className="race-featured-head">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="race-featured-latest">Latest</span>
+          <span className="race-featured-latest">최근 경기</span>
           {readOnly ? (
             <div className="flex items-baseline gap-3">
               <span className="race-featured-time">{timeLabel(race.time)}</span>
