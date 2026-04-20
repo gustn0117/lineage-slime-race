@@ -433,15 +433,20 @@ class Agent:
         print("[init] EasyOCR 로드 중... (최초 실행 시 모델 다운로드로 1~2분 소요)")
         import easyocr  # 지연 import
 
+        # 툴팁·라인업 스캔용 리더
         self.reader = easyocr.Reader(["ko", "en"], gpu=False, verbose=False)
+        # 대화창 전용 리더 (별도 인스턴스 → 메인 스레드와 완전 병행)
+        print("[init] 대화창 전용 OCR 리더 추가 로드 중...")
+        self.dialog_reader = easyocr.Reader(
+            ["ko", "en"], gpu=False, verbose=False
+        )
         self.sct = mss.mss()
         self.last_lineup_sig: Optional[str] = None
         self.last_winner_key: Optional[str] = None
         self.seen_lines: set[str] = set()
         # 실패한 레인 재시도를 위한 부분 라인업
         self.partial_lineup: dict[int, dict] = {}
-        # 스레드 안전: 읽기는 한 번에 한 스레드만
-        self._ocr_lock = threading.Lock()
+        # 두 리더가 다르므로 락은 더 이상 필요 없음
         self._stop_event = threading.Event()
         self._dialog_thread: Optional[threading.Thread] = None
         # 아만이 "경기 시작 N분전" 외친 시각 → 메인 루프가 라인업 스캔 시작
@@ -587,8 +592,7 @@ class Agent:
         if allowlist:
             kwargs["allowlist"] = allowlist
         try:
-            with self._ocr_lock:
-                lines = self.reader.readtext(processed, **kwargs)
+            lines = self.reader.readtext(processed, **kwargs)
         except Exception as e:
             print(f"  [ocr error] {e}")
             return ""
@@ -707,10 +711,10 @@ class Agent:
         # 대화창 글자는 툴팁보다 큼. 1.6배 정도만 확대해도 충분. 속도 우선.
         processed = _preprocess_for_ocr(img, scale=1.6)
         try:
-            with self._ocr_lock:
-                lines = self.reader.readtext(
-                    processed, detail=0, paragraph=False
-                )
+            # 전용 리더 사용 — 메인 스레드 OCR과 완전 독립
+            lines = self.dialog_reader.readtext(
+                processed, detail=0, paragraph=False
+            )
         except Exception as e:
             print(f"  [dialog ocr error] {e}")
             return
@@ -813,7 +817,7 @@ class Agent:
         except Exception as e:
             print(f"[dialog thread] mss 초기화 실패: {e}")
             return
-        dialog_interval = float(self.cfg.get("dialog_interval_sec", 0.15))
+        dialog_interval = float(self.cfg.get("dialog_interval_sec", 0.05))
         while not self._stop_event.is_set():
             try:
                 self._scan_dialog(sct)
