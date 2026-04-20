@@ -360,6 +360,53 @@ _TOOLTIP_ALLOWLIST = (
     + "".join(chr(i) for i in range(0xAC00, 0xD7A4))
 )
 
+# 공식 슬라임 로스터. OCR 결과 보정의 레퍼런스.
+# 사용자 제공: 현재 운영 중인 슬라임 전체 목록.
+CANONICAL_SLIMES: list[str] = [
+    "슈팅스타",
+    "세인트라이트",
+    "엘븐애로우",
+    "사이하",
+    "라이트닝",
+    "이븐스타",
+    "펠컨",
+    "호크윈드",
+    "뷸렛",
+    "가버너",
+    "가디안",
+    "글루디아",
+    "레이디호크",
+    "마이베이비",
+    "마키아벨리",
+    "슈퍼블랙",
+    "영이글",
+    "젤리피쉬",
+    "캐논 보이",
+    "펌블",
+]
+
+# 한글 자모 분해용
+_CHOSUNG = list("ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ")
+_JUNGSUNG = list("ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ")
+_JONGSUNG = [""] + list("ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ")
+
+
+def _to_jamo(s: str) -> str:
+    """한글 음절을 초성+중성+종성 자모 문자열로 분해."""
+    out = []
+    for ch in s:
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            offset = code - 0xAC00
+            out.append(_CHOSUNG[offset // 588])
+            out.append(_JUNGSUNG[(offset % 588) // 28])
+            jo = _JONGSUNG[offset % 28]
+            if jo:
+                out.append(jo)
+        else:
+            out.append(ch)
+    return "".join(out)
+
 
 def _debug_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -396,42 +443,91 @@ class Agent:
         self._dialog_thread: Optional[threading.Thread] = None
         # 아만이 "경기 시작 N분전" 외친 시각 → 메인 루프가 라인업 스캔 시작
         self.aman_trigger_ts: Optional[float] = None
-        # 서버에 있는 알려진 슬라임 이름 목록 (OCR 오타 보정용)
-        self.known_slimes: list[str] = []
+        # OCR 오타 보정용 슬라임 이름 목록.
+        # 기본은 CANONICAL_SLIMES (사용자가 준 공식 20마리), 서버에 추가 이름이 있으면 병합.
+        self.known_slimes: list[str] = list(CANONICAL_SLIMES)
         self._fetch_known_slimes()
+        print(f"[init] 보정 대상 슬라임 {len(self.known_slimes)}마리: {', '.join(self.known_slimes[:10])}...")
 
         if DEBUG_OCR:
             print(f"[init] AGENT_DEBUG_OCR 켜짐. 캡처 결과를 {_debug_dir()} 에 저장합니다.")
         print("[init] 준비 완료.")
 
     def _fetch_known_slimes(self) -> None:
+        """서버에 있는 슬라임 이름도 병합 (공식 리스트에 없는 새 이름 대비)."""
         try:
             r = requests.get(
                 f"{self.cfg['server_url']}/api/races/slime-names",
                 timeout=5,
             )
-            if r.ok:
-                self.known_slimes = r.json().get("names", []) or []
-                print(
-                    f"[init] 서버에서 알려진 슬라임 {len(self.known_slimes)}마리 로드"
-                )
+            if not r.ok:
+                return
+            server_names = r.json().get("names", []) or []
+            canonical = set(self.known_slimes)
+            extras: list[str] = []
+            for name in server_names:
+                if not name or name in canonical:
+                    continue
+                # 2글자 미만 or 특수문자 덩어리는 이전 OCR 쓰레기일 가능성 높음. 제외.
+                if len(name) < 2 or not re.search(r"[가-힣]", name):
+                    continue
+                extras.append(name)
+            if extras:
+                self.known_slimes.extend(extras)
         except Exception as e:
-            print(f"[warn] 슬라임 이름 목록 로드 실패: {e}")
+            print(f"[warn] 서버 슬라임 이름 병합 실패: {e}")
 
     def _correct_name(self, raw: str) -> str:
-        """EasyOCR 결과를 알려진 슬라임 이름과 가장 가까운 값으로 보정."""
+        """EasyOCR 결과를 알려진 슬라임 이름과 가장 가까운 값으로 보정.
+
+        1차: 음절 레벨 유사도 (difflib, cutoff 0.35)
+        2차: 자모 레벨 유사도 (cutoff 0.4) — 1차에서 못 잡은 심한 오타 대응.
+             예: '슈펙수터' → 자모 레벨에서 '슈팅스타'와 0.44 일치.
+        """
         if not raw or not self.known_slimes:
             return raw
-        # cutoff 0.4 = 40% 이상 유사하면 매칭. 게임 폰트가 계단식이라 비교적 공격적으로 잡음.
+
+        # 비교용 정규화: 공백 제거 후 매칭, 찾으면 원본(공백 포함) 리턴
+        norm_raw = re.sub(r"\s+", "", raw)
+        norm_map = {re.sub(r"\s+", "", s): s for s in self.known_slimes}
+        norm_keys = list(norm_map.keys())
+
+        # 정확히 일치하면 바로
+        if norm_raw in norm_map:
+            best = norm_map[norm_raw]
+            if best != raw:
+                print(f"      [autocorrect] '{raw}' → '{best}'")
+            return best
+
+        # 1차: 음절 레벨
         matches = difflib.get_close_matches(
-            raw, self.known_slimes, n=1, cutoff=0.4
+            norm_raw, norm_keys, n=1, cutoff=0.35
         )
-        if not matches:
-            return raw
-        best = matches[0]
-        if best != raw:
-            print(f"      [autocorrect] '{raw}' → '{best}'")
-        return best
+        if matches:
+            best = norm_map[matches[0]]
+            if best != raw:
+                print(f"      [autocorrect:syl] '{raw}' → '{best}'")
+            return best
+
+        # 2차: 자모 레벨
+        raw_jamo = _to_jamo(norm_raw)
+        best_key = None
+        best_ratio = 0.0
+        for key in norm_keys:
+            r = difflib.SequenceMatcher(
+                None, raw_jamo, _to_jamo(key)
+            ).ratio()
+            if r > best_ratio:
+                best_ratio = r
+                best_key = key
+        if best_key and best_ratio >= 0.4:
+            best = norm_map[best_key]
+            print(
+                f"      [autocorrect:jamo] '{raw}' → '{best}' (ratio={best_ratio:.2f})"
+            )
+            return best
+
+        return raw
 
     def _dbg_save(self, name: str, img: np.ndarray, text: str = "") -> None:
         if not DEBUG_OCR:
