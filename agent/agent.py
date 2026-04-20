@@ -444,6 +444,8 @@ class Agent:
         )
         self.sct = mss.mss()
         self.last_lineup_sig: Optional[str] = None
+        # 최근 라인업을 서버에 보낸 시각. 짧은 간격(<3분)에 또 보내는 걸 방지.
+        self.last_lineup_send_ts: Optional[float] = None
         # 우승자 dedup: 60초 윈도우 내에 같은 (번호, 보정된 이름)이
         # 재차 OCR로 잡혀도 한 번만 처리. 회차 번호는 OCR에 따라 585→535→585
         # 식으로 흔들리므로 dedup 키에서 제외.
@@ -686,6 +688,7 @@ class Agent:
         if sig == self.last_lineup_sig:
             return
         self.last_lineup_sig = sig
+        self.last_lineup_send_ts = time.time()
         # 에이전트 로컬 시각으로 date/time 명시 → 서버 TZ가 UTC여도 한국 시간 반영
         now = time.localtime()
         date_str = time.strftime("%Y-%m-%d", now)
@@ -900,16 +903,29 @@ class Agent:
 
                 # 새 아만 알림이 들어왔으면 (이전 경기 상태가 남아있더라도)
                 # 강제로 상태를 리셋하고 이번 회차를 새로 스캔한다.
+                # 단, 직전에 라인업을 보낸 지 3분이 안 됐으면 같은 경기로 간주해서
+                # 재송신하지 않음 (같은 경기 라인업이 두 번 저장되는 것 방지).
                 if aman_ts is not None and aman_ts != last_aman_ts:
-                    if last_aman_ts is not None:
+                    recent_send = (
+                        self.last_lineup_send_ts is not None
+                        and time.time() - self.last_lineup_send_ts < 180
+                    )
+                    if recent_send:
+                        # 같은 경기로 간주 — aman_ts만 동기화하고 상태는 유지
+                        last_aman_ts = aman_ts
                         print(
-                            f"[{time.strftime('%H:%M:%S')}] 새 아만 알림 감지 → 이전 상태 리셋, 라인업 재스캔"
+                            f"[{time.strftime('%H:%M:%S')}] 새 아만 알림이지만 최근 라인업 전송 있음 → 같은 경기로 간주, 리셋 생략"
                         )
-                    last_aman_ts = aman_ts
-                    running = False
-                    lineup_sent = False
-                    self.partial_lineup = {}
-                    self.race_started = False
+                    else:
+                        if last_aman_ts is not None:
+                            print(
+                                f"[{time.strftime('%H:%M:%S')}] 새 아만 알림 감지 → 이전 상태 리셋, 라인업 재스캔"
+                            )
+                        last_aman_ts = aman_ts
+                        running = False
+                        lineup_sent = False
+                        self.partial_lineup = {}
+                        self.race_started = False
 
                 # 아만 알림 이후 ~3분 동안은 "곧 경기" 상태로 간주
                 aman_active = (
