@@ -58,6 +58,28 @@ function sanitizeLanes(
   });
 }
 
+// 새 경기 이벤트(라인업 or 우승자) 들어올 때, 그보다 이전의 미확정 레이스를
+// "값 있는 첫 레인"을 우승으로 자동 확정. race가 미완인 채로 계속 남아있는 걸
+// 방지. 이미 확정된(winnerLane !== null) 레이스는 건드리지 않음.
+async function finalizeOlderPending(
+  cutoffDate: string,
+  cutoffTime: string,
+  all: Race[]
+): Promise<void> {
+  const cutoffKey = `${cutoffDate} ${cutoffTime}`;
+  for (const race of all) {
+    if (race.winnerLane !== null) continue;
+    const key = `${race.date} ${race.time}`;
+    if (key >= cutoffKey) continue;
+    const firstFilledIdx = race.lanes.findIndex(
+      (l) => l.slime && l.slime.trim().length > 0
+    );
+    if (firstFilledIdx >= 0) {
+      await saveRace({ ...race, winnerLane: firstFilledIdx + 1 });
+    }
+  }
+}
+
 function nameMatches(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
@@ -119,6 +141,10 @@ export async function POST(req: NextRequest) {
     const time = body.time ?? currentTimeStr();
 
     const all = await listRaces();
+
+    // 이전 미확정 레이스가 남아있으면 "값 있는 첫 레인"으로 자동 확정.
+    await finalizeOlderPending(date, time, all);
+
     const existing = all.find((r) => r.date === date && r.time === time);
     if (existing) {
       const updated: Race = { ...existing, lanes };
@@ -155,6 +181,12 @@ export async function POST(req: NextRequest) {
       .sort((a, b) =>
         `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`)
       )[0];
+
+    // 현재 pending보다 더 오래된 미확정은 자동 확정 (pending은 우승자 매칭으로
+    // 이번 요청에서 처리되므로 제외).
+    if (pending) {
+      await finalizeOlderPending(pending.date, pending.time, all);
+    }
 
     if (!pending) {
       // 라인업이 누락된 상태에서 우승자만 도착한 경우 — 에이전트가 경기 시작
