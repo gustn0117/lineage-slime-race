@@ -443,6 +443,10 @@ class Agent:
         self.sct = mss.mss()
         self.last_lineup_sig: Optional[str] = None
         self.last_winner_key: Optional[str] = None
+        # 회차별 중복 방지: 같은 회차 우승자는 최초 1회만 서버 전송.
+        # 두 번째 OCR 결과가 garbled되어 autocorrect가 엉뚱한 슬라임으로 매칭되어
+        # 서버 winner를 덮어쓰는 것을 방지.
+        self.last_winner_round: Optional[int] = None
         self.seen_lines: set[str] = set()
         # 실패한 레인 재시도를 위한 부분 라인업
         self.partial_lineup: dict[int, dict] = {}
@@ -676,6 +680,10 @@ class Agent:
         if sig == self.last_lineup_sig:
             return
         self.last_lineup_sig = sig
+        # 에이전트 로컬 시각으로 date/time 명시 → 서버 TZ가 UTC여도 한국 시간 반영
+        now = time.localtime()
+        date_str = time.strftime("%Y-%m-%d", now)
+        time_str = time.strftime("%H:%M", now)
         try:
             r = requests.post(
                 f"{self.cfg['server_url']}/api/races/ingest",
@@ -683,7 +691,12 @@ class Agent:
                     "Authorization": f"Bearer {self.cfg['token']}",
                     "Content-Type": "application/json",
                 },
-                json={"type": "lineup", "lanes": lanes},
+                json={
+                    "type": "lineup",
+                    "date": date_str,
+                    "time": time_str,
+                    "lanes": lanes,
+                },
                 timeout=10,
             )
             if r.ok:
@@ -780,15 +793,17 @@ class Agent:
     def _handle_winner(
         self, round_no: int, num: int, name: str, raw: str
     ) -> None:
-        # 라인업과 동일한 보정 로직 적용 → 서버에서 매칭 성공률 극대화
+        # 같은 회차는 최초 1회만 처리. 2차 OCR에서 garbled로 autocorrect가
+        # 엉뚱한 슬라임 잡아서 서버 winner를 덮어쓰는 걸 방지.
+        if self.last_winner_round == round_no:
+            return
+
         corrected_name = self._correct_name(name)
         if corrected_name != name:
             print(f"      [winner autocorrect] '{name}' → '{corrected_name}'")
 
-        key = f"{round_no}:{num}:{corrected_name}"
-        if key == self.last_winner_key:
-            return
-        self.last_winner_key = key
+        self.last_winner_round = round_no
+        self.last_winner_key = f"{round_no}:{num}:{corrected_name}"
         print(f"  [마후] {round_no}회 우승: #{num} {corrected_name}")
         try:
             r = requests.post(
@@ -908,7 +923,7 @@ class Agent:
                     self.partial_lineup = {}
                     lineup_sent = False
                     self.race_started = False
-                    # 다음 경기 대비: 알려진 슬라임 이름 갱신
+                    # 다음 경기 대비: 알려진 슬라임 이름 갱신 + winner dedup 리셋
                     self._fetch_known_slimes()
             except KeyboardInterrupt:
                 print("\n중단 요청. 종료합니다.")
