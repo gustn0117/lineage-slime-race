@@ -537,7 +537,7 @@ class Agent:
             if r > best_ratio:
                 best_ratio = r
                 best_key = key
-        if best_key and best_ratio >= 0.55:
+        if best_key and best_ratio >= 0.5:
             best = norm_map[best_key]
             print(
                 f"      [autocorrect:jamo] '{raw}' → '{best}' (ratio={best_ratio:.2f})"
