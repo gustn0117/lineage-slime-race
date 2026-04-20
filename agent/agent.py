@@ -317,19 +317,22 @@ class SetupWindow:
 # --------------------------------------------------------------------------- #
 
 
-# 마후 라인 패턴. OCR이 글자를 흘려도 "마X" + 숫자 + "회" + 우승/씌스/승자 + 번호 + 이름 순서만 맞으면 매칭.
+# 마후 우승 패턴. 접두(마후) 요구 안 함 — OCR이 '마루','마두' 등으로 흘려도 됨.
+# "제 <회차>회" + 중간에 '우' + 어떤 글자 + '자' 라는 구조 + 번호+이름이 있으면 매칭.
+# # 기호가 '6'으로 읽히는 오탐도 허용.
 MAHU_PATTERN = re.compile(
-    r"마\S{0,2}\s*[:：]?.*?제\s*(\d+)\s*회.*?(?:우승|우{1,2}승|승자).*?[#＃]?\s*(\d+)\s+([^\s\"'“”]+)"
+    r"제\s*(\d+)\s*회.*?우\S{0,2}자.*?[\"'“”]?\s*[#＃6]?\s*(\d{1,4})\s+([^\s\"'“”#]+)"
 )
 
-# 아만 사전 알림 패턴. "아만: 경기 시작 N분전" 스타일.
-# OCR이 "아만" 일부를 놓치거나 "경기" 위치가 흔들려도 잡도록 관대하게.
+# 아만 "경기 시작 N분전" — 접두(아만) 요구 없이 핵심 문구로만 매칭.
 AMAN_PREMATCH_PATTERN = re.compile(
-    r"아\S{0,2}\s*[:：]?.*?경\S*\s*시작.*?(\d+)\s*분\s*전"
+    r"경\S{0,2}\s*시\S{0,1}\s*작.*?(\d+)\s*분\s*전"
 )
-# "아만: 시작!" 본격 시작 신호
+
+# 아만 "시작!" — 경기 본격 시작. 재시도 루프 중단 신호.
+# "시작" 앞뒤에 흐릿한 문자 허용.
 AMAN_START_PATTERN = re.compile(
-    r"아\S{0,2}\s*[:：]?\s*시\s*작\s*[!！.]?"
+    r"[:：]\s*시\s*작\s*[!！.\?:;]"
 )
 
 DEBUG_OCR = os.environ.get("AGENT_DEBUG_OCR", "").strip().lower() not in (
@@ -443,6 +446,8 @@ class Agent:
         self._dialog_thread: Optional[threading.Thread] = None
         # 아만이 "경기 시작 N분전" 외친 시각 → 메인 루프가 라인업 스캔 시작
         self.aman_trigger_ts: Optional[float] = None
+        # 아만 "시작!" 감지 → 라인업 재시도 중단 신호
+        self.race_started = False
         # OCR 오타 보정용 슬라임 이름 목록.
         # 기본은 CANONICAL_SLIMES (사용자가 준 공식 20마리), 서버에 추가 이름이 있으면 병합.
         self.known_slimes: list[str] = list(CANONICAL_SLIMES)
@@ -594,13 +599,27 @@ class Agent:
         return text
 
     def _parse_tooltip(self, text: str) -> tuple[Optional[int], str]:
-        t = text.replace("#", "# ").replace("＃", "# ")
-        m = re.search(r"#\s*(\d+)\s*[.,]?\s*([^\s#]+)", t)
+        t = text.replace("＃", "#").strip()
+        # 앞쪽 '6' 또는 '@' + 숫자 → '#' 오탐 복구 (#14 → 614 같은 경우)
+        t = re.sub(r"^\s*[6@8]\s*(\d)", r"#\1", t)
+        # 중간 공백 정규화
+        t = re.sub(r"\s+", " ", t)
+
+        # 1) "#숫자 이름" (가장 일반적) — 이름은 최대 두 단어까지
+        m = re.search(r"#\s*(\d{1,4})\s*[.,:]?\s*(\S+(?:\s+\S+)?)", t)
         if m:
             return int(m.group(1)), m.group(2).strip()
-        m2 = re.search(r"(\d+)\s+([^\s#]+)", t)
-        if m2:
-            return int(m2.group(1)), m2.group(2).strip()
+
+        # 2) 앞쪽에 잡음 글자(D, U, O 등) + 숫자 + 이름
+        #    예: "3D 라이트님", "8 O0 라이트님", "사만8 O0 라이트님"
+        m = re.search(r"(\d{1,4})\D{0,3}\s+(\S{2,}(?:\s+\S+)?)", t)
+        if m:
+            num = int(m.group(1))
+            name = m.group(2).strip()
+            # 이름 선두의 단발 영문/특수문자 잡음 제거
+            name = re.sub(r"^[^\uAC00-\uD7A3a-zA-Z]+", "", name).strip()
+            if name and len(name) >= 2:
+                return num, name
         return None, t.strip()
 
     def _scan_one_lane(self, lane_no: int, lane: dict) -> Optional[dict]:
@@ -727,6 +746,13 @@ class Agent:
                     self.aman_trigger_ts = time.time()
                 break
 
+        # 아만 "시작!" — 라인업 재시도 중단 신호
+        for line in candidates:
+            if AMAN_START_PATTERN.search(line) and not self.race_started:
+                print("  [아만] 시작! → 라인업 재시도 중단, 현재 값으로 확정")
+                self.race_started = True
+                break
+
         # 마후 우승 결과
         for line in candidates:
             m = MAHU_PATTERN.search(line)
@@ -735,8 +761,9 @@ class Agent:
                 num = int(m.group(2))
                 name = m.group(3).strip()
                 self._handle_winner(round_no, num, name, line)
-                # 우승 확정 후 트리거 초기화 (다음 경기용)
+                # 우승 확정 후 상태 초기화 (다음 경기용)
                 self.aman_trigger_ts = None
+                self.race_started = False
                 break
 
         # 매 스캔마다 OCR이 본 것을 항상 짧게 로그 (디버깅)
@@ -826,13 +853,31 @@ class Agent:
                         running = True
                         self.partial_lineup = {}
                         lineup_sent = False
-                    # 아직 안 찬 레인만 다시 호버
+                        self.race_started = False
+
                     if not lineup_sent:
-                        self._scan_missing_lanes()
-                        full = self._full_lineup_or_none()
-                        if full:
-                            self._send_lineup(full)
+                        if self.race_started:
+                            # 시작 신호가 왔으면 더 이상 호버해봤자 슬라임이 이동 중.
+                            # 지금까지 수집한 것만 보냄 (부분 라인업).
+                            partial = []
+                            for i in range(len(self.cfg["lanes"])):
+                                ln = i + 1
+                                partial.append(
+                                    self.partial_lineup.get(
+                                        ln, {"lane": ln, "slime": "", "number": None}
+                                    )
+                                )
+                            got = sorted(self.partial_lineup.keys())
+                            print(f"  [force-send] 시작 신호 수신. 확보 레인 {got} 로 전송.")
+                            self._send_lineup(partial)
                             lineup_sent = True
+                        else:
+                            # 아직 시작 전 → 미채움 레인만 재스캔
+                            self._scan_missing_lanes()
+                            full = self._full_lineup_or_none()
+                            if full:
+                                self._send_lineup(full)
+                                lineup_sent = True
                 elif running:
                     # 슬라임이 안 보이면 경기 종료. 부분 라인업이라도 한 번 보냄.
                     if not lineup_sent and self.partial_lineup:
@@ -853,6 +898,7 @@ class Agent:
                     running = False
                     self.partial_lineup = {}
                     lineup_sent = False
+                    self.race_started = False
                     # 다음 경기 대비: 알려진 슬라임 이름 갱신
                     self._fetch_known_slimes()
             except KeyboardInterrupt:
