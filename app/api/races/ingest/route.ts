@@ -155,10 +155,32 @@ export async function POST(req: NextRequest) {
       )[0];
 
     if (!pending) {
-      return NextResponse.json(
-        { error: "no pending race to match" },
-        { status: 404 }
-      );
+      // 라인업이 누락된 상태에서 우승자만 도착한 경우 — 에이전트가 경기 시작
+      // 시점에 라인업 스캔을 못했거나 초기 진입 때. 정보 손실 방지용으로
+      // 우승자만 담긴 임시 경기를 생성. 관리자가 /admin에서 나머지 레인을
+      // 채울 수 있음.
+      const fallbackLanes: RaceLane[] = [];
+      for (let i = 1; i <= LANE_COUNT; i++) {
+        fallbackLanes.push({
+          lane: i,
+          slime: i === 1 ? winnerName : "",
+          number: i === 1 ? winnerNumber : undefined,
+        });
+      }
+      const race: Race = {
+        id: makeId(),
+        date: todayStr(),
+        time: currentTimeStr(),
+        lanes: fallbackLanes,
+        winnerLane: 1,
+        createdAt: Date.now(),
+      };
+      const saved = await saveRace(race);
+      return NextResponse.json({
+        race: saved,
+        matchedLane: 1,
+        createdStandalone: true,
+      });
     }
 
     // 1차: 이름 + (있으면) 번호 모두 일치

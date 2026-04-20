@@ -442,11 +442,10 @@ class Agent:
         )
         self.sct = mss.mss()
         self.last_lineup_sig: Optional[str] = None
-        self.last_winner_key: Optional[str] = None
-        # 회차별 중복 방지: 같은 회차 우승자는 최초 1회만 서버 전송.
-        # 두 번째 OCR 결과가 garbled되어 autocorrect가 엉뚱한 슬라임으로 매칭되어
-        # 서버 winner를 덮어쓰는 것을 방지.
-        self.last_winner_round: Optional[int] = None
+        # 우승자 dedup: 60초 윈도우 내에 같은 (번호, 보정된 이름)이
+        # 재차 OCR로 잡혀도 한 번만 처리. 회차 번호는 OCR에 따라 585→535→585
+        # 식으로 흔들리므로 dedup 키에서 제외.
+        self.recent_winners: dict[str, float] = {}
         self.seen_lines: set[str] = set()
         # 실패한 레인 재시도를 위한 부분 라인업
         self.partial_lineup: dict[int, dict] = {}
@@ -793,17 +792,21 @@ class Agent:
     def _handle_winner(
         self, round_no: int, num: int, name: str, raw: str
     ) -> None:
-        # 같은 회차는 최초 1회만 처리. 2차 OCR에서 garbled로 autocorrect가
-        # 엉뚱한 슬라임 잡아서 서버 winner를 덮어쓰는 걸 방지.
-        if self.last_winner_round == round_no:
-            return
-
         corrected_name = self._correct_name(name)
         if corrected_name != name:
             print(f"      [winner autocorrect] '{name}' → '{corrected_name}'")
 
-        self.last_winner_round = round_no
-        self.last_winner_key = f"{round_no}:{num}:{corrected_name}"
+        # 60초 윈도우 dedup: 같은 (번호, 이름) 쌍이 재-OCR로 잡혀도 1회만 처리.
+        # 회차 번호는 OCR이 585/535/586 식으로 흔들리므로 키에서 제외.
+        now = time.time()
+        self.recent_winners = {
+            k: t for k, t in self.recent_winners.items() if now - t < 60
+        }
+        sig = f"{num}:{corrected_name}"
+        if sig in self.recent_winners:
+            return
+        self.recent_winners[sig] = now
+
         print(f"  [마후] {round_no}회 우승: #{num} {corrected_name}")
         try:
             r = requests.post(
