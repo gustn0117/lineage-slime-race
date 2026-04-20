@@ -318,10 +318,12 @@ class SetupWindow:
 
 
 # 마후 우승 패턴. 접두(마후) 요구 안 함 — OCR이 '마루','마두' 등으로 흘려도 됨.
-# "제 <회차>회" + 중간에 '우' + 어떤 글자 + '자' 라는 구조 + 번호+이름이 있으면 매칭.
-# # 기호가 '6'으로 읽히는 오탐도 허용.
+# 구조: "제 <회차>회" + '우X자' + (선택 # or 6 오탐) + 번호 + 이름 + '입X다'.
+# 말미 '입X다' (입니다 / 입너다 / 입니니다 등)를 요구함으로써 regex가
+# 멀리 점프해서 엉뚱한 '1 입배' 같은 걸 잡는 걸 방지.
 MAHU_PATTERN = re.compile(
-    r"제\s*(\d+)\s*회.*?우\S{0,2}자.*?[\"'“”]?\s*[#＃6]?\s*(\d{1,4})\s+([^\s\"'“”#]+)"
+    r"제\s*(\d+)\s*회.*?우\S{0,2}자.*?[\"'“”]?\s*[#＃6]?\s*(\d{1,4})\s+"
+    r"([^\s\"'“”#]{2,8})[\"'“”]?\s*입\S{0,2}다"
 )
 
 # 아만 "경기 시작 N분전" — 접두(아만) 요구 없이 핵심 문구로만 매칭.
@@ -805,16 +807,18 @@ class Agent:
         if corrected_name != name:
             print(f"      [winner autocorrect] '{name}' → '{corrected_name}'")
 
-        # 60초 윈도우 dedup: 같은 (번호, 이름) 쌍이 재-OCR로 잡혀도 1회만 처리.
-        # 회차 번호는 OCR이 585/535/586 식으로 흔들리므로 키에서 제외.
+        # 60초 dedup: round 번호 + (번호,이름) 양쪽으로 중복 차단.
+        # 같은 회차가 다시 잡히면 첫 결과만 유효.
         now = time.time()
         self.recent_winners = {
             k: t for k, t in self.recent_winners.items() if now - t < 60
         }
-        sig = f"{num}:{corrected_name}"
-        if sig in self.recent_winners:
+        round_key = f"r:{round_no}"
+        name_key = f"n:{num}:{corrected_name}"
+        if round_key in self.recent_winners or name_key in self.recent_winners:
             return
-        self.recent_winners[sig] = now
+        self.recent_winners[round_key] = now
+        self.recent_winners[name_key] = now
 
         print(f"  [마후] {round_no}회 우승: #{num} {corrected_name}")
         # 클라이언트 로컬 시간도 같이 전송 → 서버 TZ 무관하게 fallback race도 한국 시간 사용
