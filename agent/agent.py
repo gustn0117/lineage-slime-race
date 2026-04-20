@@ -780,11 +780,16 @@ class Agent:
     def _handle_winner(
         self, round_no: int, num: int, name: str, raw: str
     ) -> None:
-        key = f"{round_no}:{num}:{name}"
+        # 라인업과 동일한 보정 로직 적용 → 서버에서 매칭 성공률 극대화
+        corrected_name = self._correct_name(name)
+        if corrected_name != name:
+            print(f"      [winner autocorrect] '{name}' → '{corrected_name}'")
+
+        key = f"{round_no}:{num}:{corrected_name}"
         if key == self.last_winner_key:
             return
         self.last_winner_key = key
-        print(f"  [마후] {round_no}회 우승: #{num} {name}")
+        print(f"  [마후] {round_no}회 우승: #{num} {corrected_name}")
         try:
             r = requests.post(
                 f"{self.cfg['server_url']}/api/races/ingest",
@@ -796,7 +801,7 @@ class Agent:
                     "type": "winner",
                     "round": round_no,
                     "winnerNumber": num,
-                    "winnerName": name,
+                    "winnerName": corrected_name,
                 },
                 timeout=10,
             )

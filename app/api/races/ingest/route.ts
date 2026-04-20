@@ -62,14 +62,15 @@ function nameMatches(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
   if (a.includes(b) || b.includes(a)) return true;
-  // 간단한 문자 기반 유사도: 짧은 쪽의 70% 이상 문자가 겹치면 매칭
+  // 짧은 쪽의 50% 이상 문자가 겹치면 매칭 (agent가 이미 1차 보정을 하므로
+  // 기본은 거의 exact match이고 이 로직은 방어용).
   const shorter = a.length <= b.length ? a : b;
   const longer = a.length > b.length ? a : b;
   let hit = 0;
   for (const ch of shorter) {
     if (longer.includes(ch)) hit++;
   }
-  return hit / shorter.length >= 0.7;
+  return hit / shorter.length >= 0.5;
 }
 
 type Body =
