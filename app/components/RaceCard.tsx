@@ -96,9 +96,6 @@ export default function RaceCard({
 
               {readOnly ? (
                 <>
-                  <span className="lane-num-display">
-                    {typeof lane.number === "number" ? lane.number : "-"}
-                  </span>
                   <span
                     className={`lane-name-display ${
                       hasData ? "" : "text-zinc-700"
@@ -110,22 +107,6 @@ export default function RaceCard({
                 </>
               ) : (
                 <>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    value={lane.number ?? ""}
-                    onChange={(e) =>
-                      setLane(i, {
-                        number:
-                          e.target.value === ""
-                            ? undefined
-                            : Number(e.target.value),
-                      })
-                    }
-                    className="num-input"
-                    placeholder="#"
-                  />
                   <input
                     list="slime-names"
                     value={lane.slime}

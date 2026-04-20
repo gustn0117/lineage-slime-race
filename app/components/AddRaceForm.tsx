@@ -132,15 +132,6 @@ export default function AddRaceForm({ existingRaces, onAdd }: Props) {
                   {i + 1}레인
                 </span>
                 <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  value={l.number}
-                  onChange={(e) => changeLane(i, { number: e.target.value })}
-                  className="num-input"
-                  placeholder="#"
-                />
-                <input
                   list="slime-names"
                   value={l.slime}
                   onChange={(e) => changeLane(i, { slime: e.target.value })}

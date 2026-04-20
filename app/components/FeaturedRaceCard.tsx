@@ -98,9 +98,6 @@ export default function FeaturedRaceCard({
 
                 {readOnly ? (
                   <>
-                    <div className="lane-col-num">
-                      {typeof lane.number === "number" ? lane.number : "-"}
-                    </div>
                     <div
                       className={`lane-col-name ${
                         hasData ? "" : "text-zinc-700"
@@ -119,22 +116,6 @@ export default function FeaturedRaceCard({
                   </>
                 ) : (
                   <>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={lane.number ?? ""}
-                      onChange={(e) =>
-                        setLane(i, {
-                          number:
-                            e.target.value === ""
-                              ? undefined
-                              : Number(e.target.value),
-                        })
-                      }
-                      className="num-input-lg"
-                      placeholder="#"
-                    />
                     <input
                       list="slime-names"
                       value={lane.slime}

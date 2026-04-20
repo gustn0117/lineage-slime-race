@@ -200,25 +200,55 @@ export async function POST(req: NextRequest) {
       matched = pending.lanes.find((l) => nameMatches(l.slime, winnerName));
     }
 
-    if (!matched) {
-      return NextResponse.json(
-        {
-          error: "no slime in pending race matched the winner",
-          pendingRaceId: pending.id,
-          winnerName,
-          winnerNumber,
-        },
-        { status: 404 }
-      );
+    if (matched) {
+      const updated: Race = { ...pending, winnerLane: matched.lane };
+      const saved = await saveRace(updated);
+      return NextResponse.json({
+        race: saved,
+        matchedLane: matched.lane,
+        matchedSlime: matched.slime,
+      });
     }
 
-    const updated: Race = { ...pending, winnerLane: matched.lane };
-    const saved = await saveRace(updated);
-    return NextResponse.json({
-      race: saved,
-      matchedLane: matched.lane,
-      matchedSlime: matched.slime,
-    });
+    // 4차: 라인업에 없는 이름. 빈 레인(slime이 공백) 중 가장 작은 번호 레인을
+    //       우승자로 채움. 에이전트가 한두 레인 스캔 실패했는데 우승자가 그
+    //       레인의 슬라임이었던 경우 자동 복구.
+    const emptyIdx = pending.lanes.findIndex(
+      (l) => !l.slime || l.slime.trim() === ""
+    );
+    if (emptyIdx >= 0) {
+      const newLanes = pending.lanes.map((l, i) =>
+        i === emptyIdx
+          ? {
+              lane: i + 1,
+              slime: winnerName,
+              number: winnerNumber,
+            }
+          : l
+      );
+      const updated: Race = {
+        ...pending,
+        lanes: newLanes,
+        winnerLane: emptyIdx + 1,
+      };
+      const saved = await saveRace(updated);
+      return NextResponse.json({
+        race: saved,
+        matchedLane: emptyIdx + 1,
+        matchedSlime: winnerName,
+        filledEmptyLane: true,
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error: "no slime in pending race matched the winner",
+        pendingRaceId: pending.id,
+        winnerName,
+        winnerNumber,
+      },
+      { status: 404 }
+    );
   }
 
   return NextResponse.json(

@@ -44,9 +44,6 @@ export default function PastRaceItem({
           <>
             <span className="past-winner-chip">{race.winnerLane}레인</span>
             <span className="past-winner-name">
-              {typeof winnerLane.number === "number" && (
-                <span className="past-num">#{winnerLane.number}</span>
-              )}
               <span className="past-slime">{winnerLane.slime || "-"}</span>
             </span>
             <span className="past-star">★</span>
