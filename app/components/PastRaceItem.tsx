@@ -36,8 +36,7 @@ export default function PastRaceItem({
       <button
         type="button"
         className="past-race-summary"
-        onClick={() => admin && setOpen((o) => !o)}
-        disabled={!admin}
+        onClick={() => setOpen((o) => !o)}
       >
         <span className="past-time">{timeLabel(race.time)}</span>
 
@@ -56,16 +55,19 @@ export default function PastRaceItem({
           <span className="past-pending">미확정</span>
         )}
 
-        {admin && (
-          <span className={`past-chevron ${open ? "open" : ""}`} aria-hidden>
-            ›
-          </span>
-        )}
+        <span className={`past-chevron ${open ? "open" : ""}`} aria-hidden>
+          ›
+        </span>
       </button>
 
-      {admin && open && (
+      {open && (
         <div className="past-race-edit">
-          <RaceCard race={race} onChange={onChange} onDelete={onDelete} />
+          <RaceCard
+            race={race}
+            readOnly={!admin}
+            onChange={admin ? onChange : undefined}
+            onDelete={admin ? onDelete : undefined}
+          />
         </div>
       )}
     </div>
