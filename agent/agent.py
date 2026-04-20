@@ -492,15 +492,15 @@ class Agent:
         except Exception as e:
             print(f"[warn] 서버 슬라임 이름 병합 실패: {e}")
 
-    def _correct_name(self, raw: str) -> str:
+    def _correct_name(self, raw: str) -> Optional[str]:
         """EasyOCR 결과를 알려진 슬라임 이름과 가장 가까운 값으로 보정.
+        CANONICAL에 없는 이름(채팅 노이즈 등)은 None 반환 → 호출부에서 폐기.
 
         1차: 음절 레벨 유사도 (difflib, cutoff 0.35)
         2차: 자모 레벨 유사도 (cutoff 0.4) — 1차에서 못 잡은 심한 오타 대응.
-             예: '슈펙수터' → 자모 레벨에서 '슈팅스타'와 0.44 일치.
         """
         if not raw or not self.known_slimes:
-            return raw
+            return None
 
         # 비교용 정규화: 공백 제거 후 매칭, 찾으면 원본(공백 포함) 리턴
         norm_raw = re.sub(r"\s+", "", raw)
@@ -535,14 +535,15 @@ class Agent:
             if r > best_ratio:
                 best_ratio = r
                 best_key = key
-        if best_key and best_ratio >= 0.4:
+        if best_key and best_ratio >= 0.55:
             best = norm_map[best_key]
             print(
                 f"      [autocorrect:jamo] '{raw}' → '{best}' (ratio={best_ratio:.2f})"
             )
             return best
 
-        return raw
+        # 어느 단계에서도 충분히 유사하지 않음 → 채팅/노이즈로 간주
+        return None
 
     def _dbg_save(self, name: str, img: np.ndarray, text: str = "") -> None:
         if not DEBUG_OCR:
@@ -653,6 +654,10 @@ class Agent:
         if not ok:
             return None
         corrected = self._correct_name(name)
+        if corrected is None:
+            # 20마리 로스터와 어느 정도도 유사하지 않음 → 채팅 등 노이즈로 간주
+            print(f"    레인{lane_no}: '{name}' 은 로스터 외 이름 [REJECTED]")
+            return None
         return {"lane": lane_no, "slime": corrected, "number": num}
 
     def _scan_missing_lanes(self) -> None:
@@ -804,6 +809,10 @@ class Agent:
         self, round_no: int, num: int, name: str, raw: str
     ) -> None:
         corrected_name = self._correct_name(name)
+        if corrected_name is None:
+            # 로스터에 없는 이름 → OCR 오판 또는 채팅 잡음. 전송 보류.
+            print(f"      [winner] '{name}' 은 로스터 외 이름 — 전송 보류")
+            return
         if corrected_name != name:
             print(f"      [winner autocorrect] '{name}' → '{corrected_name}'")
 
