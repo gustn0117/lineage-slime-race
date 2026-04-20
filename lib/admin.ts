@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-export const ADMIN_PASSWORD = "1234";
+export const ADMIN_PASSWORD = "0859";
 export const ADMIN_COOKIE = "slime_admin";
 export const ADMIN_TOKEN = "ok-v1";
 
