@@ -466,6 +466,16 @@ def _debug_dir() -> Path:
     return d
 
 
+def _template_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
+    else:
+        base = Path(__file__).parent
+    d = base / "templates"
+    d.mkdir(exist_ok=True)
+    return d
+
+
 class Agent:
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -508,6 +518,21 @@ class Agent:
         self.known_slimes: list[str] = list(CANONICAL_SLIMES)
         self._fetch_known_slimes()
         print(f"[init] 보정 대상 슬라임 {len(self.known_slimes)}마리: {', '.join(self.known_slimes[:10])}...")
+
+        # 템플릿 자동 수집 상태 보고
+        tdir = _template_dir()
+        saved_templates = {p.stem for p in tdir.glob("*.png")}
+        missing = [
+            s for s in CANONICAL_SLIMES
+            if re.sub(r"\s+", "", s) not in saved_templates
+        ]
+        print(
+            f"[init] 슬라임 템플릿 {len(saved_templates)}/{len(CANONICAL_SLIMES)} 수집됨 → {tdir}"
+        )
+        if missing:
+            print(f"       아직 수집 안 된 슬라임: {', '.join(missing)}")
+        else:
+            print("       모든 슬라임 템플릿 수집 완료. 이 폴더 zip 으로 개발자에게 전달.")
 
         if DEBUG_OCR:
             print(f"[init] AGENT_DEBUG_OCR 켜짐. 캡처 결과를 {_debug_dir()} 에 저장합니다.")
@@ -608,6 +633,33 @@ class Agent:
             return best
 
         return None
+
+    def _save_template(self, slime_name: str, img: np.ndarray, raw_name: str) -> None:
+        """인식 성공률이 높은 케이스만 원본 툴팁 이미지를 템플릿으로 저장.
+        나중에 개발자에게 templates/ 폴더 통째로 보내면 template matching 가능.
+
+        저장 조건:
+          - canonical 매칭된 이름과 raw OCR 이름의 유사도가 높아야 함
+            (syllable ratio >= 0.75) → 노이즈 템플릿 방지.
+          - 해당 슬라임 템플릿이 아직 없을 때만 저장 (최초 한 번).
+        """
+        if not slime_name:
+            return
+        norm_canon = re.sub(r"\s+", "", slime_name)
+        norm_raw = re.sub(r"\s+", "", raw_name)
+        if not norm_raw:
+            return
+        ratio = difflib.SequenceMatcher(None, norm_raw, norm_canon).ratio()
+        if ratio < 0.75 and norm_raw != norm_canon:
+            return  # OCR 결과가 너무 달라 템플릿으로 신뢰 불가
+        path = _template_dir() / f"{norm_canon}.png"
+        if path.exists():
+            return  # 이미 템플릿 보유
+        try:
+            Image.fromarray(img).save(path)
+            print(f"      [template] '{slime_name}' 템플릿 저장됨 → {path.name}")
+        except Exception as e:
+            print(f"      [template save error] {e}")
 
     def _dbg_save(self, name: str, img: np.ndarray, text: str = "") -> None:
         if not DEBUG_OCR:
@@ -758,6 +810,9 @@ class Agent:
                 print(
                     f"    레인{lane_no}: '{text}' → #{num} {name} [{pre}/{dec}] → {corrected}"
                 )
+                # 깨끗한 OCR 결과였으면 원본 툴팁 이미지를 템플릿으로 저장.
+                # (첫 번째 시도가 성공한 경우 img는 원본 캡처 그대로.)
+                self._save_template(corrected, img, name)
                 return {"lane": lane_no, "slime": corrected, "number": num}
 
         # 모든 시도 실패

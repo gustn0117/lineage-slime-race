@@ -5,3 +5,6 @@ dist/
 config.json
 __pycache__/
 *.pyc
+debug/
+templates/
+agent.log
