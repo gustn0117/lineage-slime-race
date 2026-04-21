@@ -540,8 +540,9 @@ def _template_dir() -> Path:
 class Agent:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        # 인식률을 위해 최소값 강제
-        self.cfg["hover_wait_ms"] = max(int(self.cfg.get("hover_wait_ms", 500)), 500)
+        # 호버 대기 최소값을 350ms 로 낮춤 (기존 500). 대부분 게임 툴팁이 200ms
+        # 내에 떠서 150ms 는 안전 여유. 레인당 150ms × 5 = 750ms 절약.
+        self.cfg["hover_wait_ms"] = max(int(self.cfg.get("hover_wait_ms", 350)), 350)
         tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
         # 툴팁이 슬라임 바로 위에 떠서 bottom edge 에 걸쳐 글자 descender 가
         # 잘리는 문제 반복. 충분한 상하좌우 여유로 확장 + auto_crop 으로 깨끗하게
@@ -854,10 +855,12 @@ class Agent:
         """한 번의 OCR 시도. (num, raw_name, corrected_or_None, raw_text) 반환."""
         # 배경 노이즈 제거: 텍스트(밝은 픽셀) 영역만 남김
         cropped = _auto_crop_text(img)
+        # scale 5 → 3 으로 축소. auto-crop 된 텍스트는 이미 tight 하고 선명해서
+        # 3배면 OCR 충분. 5배는 이미지가 너무 커져 inference 시간 2배 이상.
         text = self._ocr(
             cropped,
             tag=tag,
-            scale=5,
+            scale=3,
             allowlist=_TOOLTIP_ALLOWLIST,
             preprocess=preprocess,
             decoder=decoder,
@@ -871,7 +874,7 @@ class Agent:
     def _scan_one_lane(self, lane_no: int, lane: dict) -> Optional[dict]:
         tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
         hover_ms = self.cfg.get("hover_wait_ms", 280)
-        pyautogui.moveTo(lane["x"], lane["y"], duration=0.08)
+        pyautogui.moveTo(lane["x"], lane["y"], duration=0.04)
         time.sleep(hover_ms / 1000)
         img = self._grab_rgb(
             lane["x"] + tb["dx"],
@@ -928,7 +931,7 @@ class Agent:
             got = self._scan_one_lane(lane_no, lane)
             if got:
                 self.partial_lineup[lane_no] = got
-        pyautogui.moveTo(10, 10, duration=0.15)
+        pyautogui.moveTo(10, 10, duration=0.05)
 
     def _full_lineup_or_none(self) -> Optional[list[dict]]:
         if len(self.partial_lineup) < len(self.cfg["lanes"]):
