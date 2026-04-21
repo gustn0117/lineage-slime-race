@@ -82,7 +82,7 @@ def save_config(cfg: dict) -> None:
     )
 
 
-DEFAULT_TOOLTIP_BBOX = {"dx": -180, "dy": -130, "w": 360, "h": 120}
+DEFAULT_TOOLTIP_BBOX = {"dx": -220, "dy": -180, "w": 440, "h": 220}
 
 
 # --------------------------------------------------------------------------- #
@@ -379,6 +379,34 @@ def _preprocess_binary(img: np.ndarray, scale: int = 5, threshold: int = 180) ->
     return np.array(pil)
 
 
+def _auto_crop_text(
+    img: np.ndarray, bright_threshold: int = 200, min_cols: int = 5
+) -> np.ndarray:
+    """이미지에서 밝은(텍스트) 픽셀이 있는 행·열만 남기고 배경 여백을 잘라냄.
+    게임 UI 텍스트는 밝은 색이라는 가정 기반.
+    """
+    h, w = img.shape[:2]
+    if h == 0 or w == 0:
+        return img
+    gray = img.max(axis=2) if img.ndim == 3 else img
+    bright = gray > bright_threshold
+
+    row_counts = bright.sum(axis=1)
+    col_counts = bright.sum(axis=0)
+
+    text_rows = np.where(row_counts >= min_cols)[0]
+    text_cols = np.where(col_counts >= min_cols)[0]
+    if len(text_rows) == 0 or len(text_cols) == 0:
+        return img  # 텍스트 없음 — 원본 유지
+
+    pad = 4
+    top = max(0, int(text_rows[0]) - pad)
+    bottom = min(h, int(text_rows[-1]) + pad + 1)
+    left = max(0, int(text_cols[0]) - pad)
+    right = min(w, int(text_cols[-1]) + pad + 1)
+    return img[top:bottom, left:right]
+
+
 def _preprocess_grayscale(img: np.ndarray, scale: float = 5.0) -> np.ndarray:
     """채도 제거 + 강한 대비. 이진화가 너무 공격적일 때 중간 옵션."""
     h, w = img.shape[:2]
@@ -482,9 +510,10 @@ class Agent:
         # 인식률을 위해 최소값 강제
         self.cfg["hover_wait_ms"] = max(int(self.cfg.get("hover_wait_ms", 500)), 500)
         tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
-        # 툴팁 위치가 슬라임 바로 위여서 고정 dy로는 걸치는 경우가 많음.
-        # 현재 기준(360x120) 보다 작으면 강제 업그레이드해서 툴팁이 확실히 포함되게.
-        if tb.get("w", 0) < 360 or tb.get("h", 0) < 120:
+        # 툴팁이 슬라임 바로 위에 떠서 bottom edge 에 걸쳐 글자 descender 가
+        # 잘리는 문제 반복. 충분한 상하좌우 여유로 확장 + auto_crop 으로 깨끗하게
+        # 추출. 440x220 보다 작으면 강제 업그레이드.
+        if tb.get("w", 0) < 440 or tb.get("h", 0) < 220:
             self.cfg["tooltip_bbox"] = dict(DEFAULT_TOOLTIP_BBOX)
             print(
                 f"[init] 툴팁 캡처 영역을 {self.cfg['tooltip_bbox']} 로 확장 (글씨 잘림 방지)"
@@ -525,17 +554,15 @@ class Agent:
         print(f"[init] 보정 대상 슬라임 {len(self.known_slimes)}마리: {', '.join(self.known_slimes[:10])}...")
 
         # 템플릿 자동 수집 상태 보고.
-        # 캡처 bbox 크기가 바뀌었으면 이전 템플릿은 크기가 안 맞으므로 모두 폐기.
+        # auto-crop 으로 저장된 최신 템플릿은 폭·높이가 텍스트에 딱 맞아 비교적
+        # 작음(대략 250x40 이내). 그보다 크면 예전의 잘린/원본 bbox 그대로
+        # 저장된 파일이므로 삭제하고 재수집.
         tdir = _template_dir()
-        expected_size = (
-            self.cfg["tooltip_bbox"]["w"],
-            self.cfg["tooltip_bbox"]["h"],
-        )
         removed = 0
         for p in list(tdir.glob("*.png")):
             try:
                 with Image.open(p) as im:
-                    if im.size != expected_size:
+                    if im.size[0] > 260 or im.size[1] > 70:
                         p.unlink()
                         removed += 1
             except Exception:
@@ -543,7 +570,7 @@ class Agent:
                 removed += 1
         if removed:
             print(
-                f"[init] 캡처 크기 변경됨 → 크기 안 맞는 템플릿 {removed}장 삭제, 재수집 예정"
+                f"[init] 과거 잘린 템플릿 {removed}장 삭제, 재수집 예정"
             )
         saved_templates = {p.stem for p in tdir.glob("*.png")}
         missing = [
@@ -680,8 +707,12 @@ class Agent:
         if path.exists():
             return  # 이미 템플릿 보유
         try:
-            Image.fromarray(img).save(path)
-            print(f"      [template] '{slime_name}' 템플릿 저장됨 → {path.name}")
+            cropped = _auto_crop_text(img)
+            Image.fromarray(cropped).save(path)
+            print(
+                f"      [template] '{slime_name}' 템플릿 저장됨 → {path.name} "
+                f"({cropped.shape[1]}x{cropped.shape[0]})"
+            )
         except Exception as e:
             print(f"      [template save error] {e}")
 
@@ -788,8 +819,10 @@ class Agent:
         self, img: np.ndarray, tag: str, preprocess: str, decoder: str
     ) -> tuple[Optional[int], str, Optional[str], str]:
         """한 번의 OCR 시도. (num, raw_name, corrected_or_None, raw_text) 반환."""
+        # 배경 노이즈 제거: 텍스트(밝은 픽셀) 영역만 남김
+        cropped = _auto_crop_text(img)
         text = self._ocr(
-            img,
+            cropped,
             tag=tag,
             scale=5,
             allowlist=_TOOLTIP_ALLOWLIST,
