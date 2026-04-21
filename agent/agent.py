@@ -380,10 +380,16 @@ def _preprocess_binary(img: np.ndarray, scale: int = 5, threshold: int = 180) ->
 
 
 def _auto_crop_text(
-    img: np.ndarray, bright_threshold: int = 200, min_cols: int = 5
+    img: np.ndarray,
+    bright_threshold: int = 200,
+    min_cols: int = 5,
+    merge_gap: int = 6,
 ) -> np.ndarray:
-    """이미지에서 밝은(텍스트) 픽셀이 있는 행·열만 남기고 배경 여백을 잘라냄.
-    게임 UI 텍스트는 밝은 색이라는 가정 기반.
+    """이미지에서 '최하단' 텍스트 밴드만 남기고 크롭.
+
+    툴팁은 항상 cursor 바로 위(=캡처의 아래쪽)에 뜨므로, 상단의 Login 바,
+    [진행자] 라벨, 캐릭터 이름 등 UI 텍스트 노이즈는 제외하고 가장 하단의
+    텍스트 덩어리만 골라낸다.
     """
     h, w = img.shape[:2]
     if h == 0 or w == 0:
@@ -392,16 +398,43 @@ def _auto_crop_text(
     bright = gray > bright_threshold
 
     row_counts = bright.sum(axis=1)
-    col_counts = bright.sum(axis=0)
+    has_text = row_counts >= min_cols
 
-    text_rows = np.where(row_counts >= min_cols)[0]
-    text_cols = np.where(col_counts >= min_cols)[0]
-    if len(text_rows) == 0 or len(text_cols) == 0:
-        return img  # 텍스트 없음 — 원본 유지
+    # 연속된 밝은 row 를 밴드로 묶고, merge_gap 이하로 가까운 밴드는 합침
+    bands: list[list[int]] = []
+    start: Optional[int] = None
+    for i, t in enumerate(has_text):
+        if t and start is None:
+            start = i
+        elif not t and start is not None:
+            bands.append([start, i - 1])
+            start = None
+    if start is not None:
+        bands.append([start, len(has_text) - 1])
 
+    if not bands:
+        return img
+
+    merged: list[list[int]] = [bands[0]]
+    for band in bands[1:]:
+        if band[0] - merged[-1][1] <= merge_gap:
+            merged[-1][1] = band[1]
+        else:
+            merged.append(band)
+
+    # 최하단 밴드 선택
+    top, bottom = merged[-1]
     pad = 4
-    top = max(0, int(text_rows[0]) - pad)
-    bottom = min(h, int(text_rows[-1]) + pad + 1)
+    top = max(0, top - pad)
+    bottom = min(h, bottom + pad + 1)
+
+    # 해당 밴드 내에서만 열(column) 범위 추출
+    band_region = bright[top:bottom]
+    col_counts = band_region.sum(axis=0)
+    text_cols = np.where(col_counts >= 1)[0]
+    if len(text_cols) == 0:
+        return img[top:bottom, :]
+
     left = max(0, int(text_cols[0]) - pad)
     right = min(w, int(text_cols[-1]) + pad + 1)
     return img[top:bottom, left:right]
