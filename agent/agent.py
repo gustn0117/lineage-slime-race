@@ -82,7 +82,7 @@ def save_config(cfg: dict) -> None:
     )
 
 
-DEFAULT_TOOLTIP_BBOX = {"dx": -90, "dy": -55, "w": 180, "h": 40}
+DEFAULT_TOOLTIP_BBOX = {"dx": -150, "dy": -80, "w": 300, "h": 70}
 
 
 # --------------------------------------------------------------------------- #
@@ -482,8 +482,13 @@ class Agent:
         # 인식률을 위해 최소값 강제
         self.cfg["hover_wait_ms"] = max(int(self.cfg.get("hover_wait_ms", 500)), 500)
         tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
-        if tb.get("w", 0) < 220 or tb.get("h", 0) < 48:
-            self.cfg["tooltip_bbox"] = {"dx": -110, "dy": -60, "w": 220, "h": 50}
+        # 툴팁 캡처 영역이 너무 좁으면(기존 220x50) 글씨 윗부분이 잘림.
+        # 300x70 로 강제 업그레이드해서 여유롭게 확보.
+        if tb.get("w", 0) < 300 or tb.get("h", 0) < 70:
+            self.cfg["tooltip_bbox"] = dict(DEFAULT_TOOLTIP_BBOX)
+            print(
+                f"[init] 툴팁 캡처 영역을 {self.cfg['tooltip_bbox']} 로 확장 (글씨 잘림 방지)"
+            )
 
         print("[init] EasyOCR 로드 중... (최초 실행 시 모델 다운로드로 1~2분 소요)")
         import easyocr  # 지연 import
@@ -519,8 +524,27 @@ class Agent:
         self._fetch_known_slimes()
         print(f"[init] 보정 대상 슬라임 {len(self.known_slimes)}마리: {', '.join(self.known_slimes[:10])}...")
 
-        # 템플릿 자동 수집 상태 보고
+        # 템플릿 자동 수집 상태 보고.
+        # 캡처 bbox 크기가 바뀌었으면 이전 템플릿은 크기가 안 맞으므로 모두 폐기.
         tdir = _template_dir()
+        expected_size = (
+            self.cfg["tooltip_bbox"]["w"],
+            self.cfg["tooltip_bbox"]["h"],
+        )
+        removed = 0
+        for p in list(tdir.glob("*.png")):
+            try:
+                with Image.open(p) as im:
+                    if im.size != expected_size:
+                        p.unlink()
+                        removed += 1
+            except Exception:
+                p.unlink(missing_ok=True)
+                removed += 1
+        if removed:
+            print(
+                f"[init] 캡처 크기 변경됨 → 크기 안 맞는 템플릿 {removed}장 삭제, 재수집 예정"
+            )
         saved_templates = {p.stem for p in tdir.glob("*.png")}
         missing = [
             s for s in CANONICAL_SLIMES
