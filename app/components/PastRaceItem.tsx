@@ -1,6 +1,7 @@
 "use client";
 
 import RaceCard from "@/app/components/RaceCard";
+import { slimeLabel } from "@/lib/slimes";
 import { Race } from "@/lib/types";
 import { useState } from "react";
 
@@ -44,7 +45,9 @@ export default function PastRaceItem({
           <>
             <span className="past-winner-chip">{race.winnerLane}레인</span>
             <span className="past-winner-name">
-              <span className="past-slime">{winnerLane.slime || "-"}</span>
+              <span className="past-slime">
+                {winnerLane.slime ? slimeLabel(winnerLane.slime) : "-"}
+              </span>
             </span>
             <span className="past-star">★</span>
           </>

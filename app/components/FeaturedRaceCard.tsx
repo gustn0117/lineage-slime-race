@@ -1,6 +1,7 @@
 "use client";
 
 import { DatePicker, TimePicker } from "@/app/components/DateTimePicker";
+import { slimeLabel } from "@/lib/slimes";
 import { LANE_COUNT, Race } from "@/lib/types";
 
 type Props = {
@@ -102,7 +103,7 @@ export default function FeaturedRaceCard({
                       hasData ? "" : "text-zinc-700"
                     } ${isWinner ? "is-winner" : ""}`}
                   >
-                    {lane.slime || "-"}
+                    {hasData ? slimeLabel(lane.slime) : "-"}
                   </span>
                   {isWinner && <span className="winner-star">★</span>}
                 </>

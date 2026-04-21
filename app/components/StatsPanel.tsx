@@ -1,5 +1,6 @@
 "use client";
 
+import { slimeLabel } from "@/lib/slimes";
 import { LaneStat, SlimeStat } from "@/lib/types";
 
 function pct(n: number) {
@@ -51,7 +52,7 @@ export function SlimeStatsTable({
                     <span className={rankClass}>{rank}</span>
                   </td>
                   <td className="px-2 py-2 font-semibold text-zinc-100 whitespace-nowrap">
-                    {s.name}
+                    {slimeLabel(s.name)}
                   </td>
                   <td className="px-2 py-2">
                     {s.recentTotal > 0 ? (
