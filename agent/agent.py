@@ -82,7 +82,7 @@ def save_config(cfg: dict) -> None:
     )
 
 
-DEFAULT_TOOLTIP_BBOX = {"dx": -150, "dy": -80, "w": 300, "h": 70}
+DEFAULT_TOOLTIP_BBOX = {"dx": -180, "dy": -130, "w": 360, "h": 120}
 
 
 # --------------------------------------------------------------------------- #
@@ -482,9 +482,9 @@ class Agent:
         # 인식률을 위해 최소값 강제
         self.cfg["hover_wait_ms"] = max(int(self.cfg.get("hover_wait_ms", 500)), 500)
         tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
-        # 툴팁 캡처 영역이 너무 좁으면(기존 220x50) 글씨 윗부분이 잘림.
-        # 300x70 로 강제 업그레이드해서 여유롭게 확보.
-        if tb.get("w", 0) < 300 or tb.get("h", 0) < 70:
+        # 툴팁 위치가 슬라임 바로 위여서 고정 dy로는 걸치는 경우가 많음.
+        # 현재 기준(360x120) 보다 작으면 강제 업그레이드해서 툴팁이 확실히 포함되게.
+        if tb.get("w", 0) < 360 or tb.get("h", 0) < 120:
             self.cfg["tooltip_bbox"] = dict(DEFAULT_TOOLTIP_BBOX)
             print(
                 f"[init] 툴팁 캡처 영역을 {self.cfg['tooltip_bbox']} 로 확장 (글씨 잘림 방지)"
