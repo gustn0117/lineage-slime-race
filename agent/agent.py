@@ -360,9 +360,10 @@ def _preprocess_for_ocr(img: np.ndarray, scale: float = 3.0) -> np.ndarray:
     return np.array(pil)
 
 
-def _preprocess_binary(img: np.ndarray, scale: int = 5, threshold: int = 160) -> np.ndarray:
+def _preprocess_binary(img: np.ndarray, scale: int = 5, threshold: int = 180) -> np.ndarray:
     """흰색(밝은) 글자만 남기고 이진화한 뒤 NEAREST 업스케일.
     게임 UI 텍스트처럼 배경 대비가 높은 밝은 글자에 효과적.
+    threshold는 180으로 상향 → 흰색 계열 텍스트만 남기고 색있는 채팅·배경 제거.
     """
     h, w = img.shape[:2]
     if h == 0 or w == 0:
@@ -376,6 +377,27 @@ def _preprocess_binary(img: np.ndarray, scale: int = 5, threshold: int = 160) ->
     pil = Image.fromarray(binary, mode="L").convert("RGB")
     pil = pil.resize((w * scale, h * scale), Image.NEAREST)
     return np.array(pil)
+
+
+def _preprocess_grayscale(img: np.ndarray, scale: float = 5.0) -> np.ndarray:
+    """채도 제거 + 강한 대비. 이진화가 너무 공격적일 때 중간 옵션."""
+    h, w = img.shape[:2]
+    if h == 0 or w == 0:
+        return img
+    pil = Image.fromarray(img).convert("L")  # grayscale
+    pil = pil.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    pil = ImageEnhance.Contrast(pil).enhance(2.2)
+    pil = ImageEnhance.Sharpness(pil).enhance(2.0)
+    pil = pil.convert("RGB")
+    return np.array(pil)
+
+
+# EasyOCR detection 임계값을 완화해서 흐릿한 글자도 감지.
+OCR_DETECTION_KWARGS = {
+    "text_threshold": 0.5,  # 기본 0.7 — 낮을수록 희미한 글자 감지
+    "low_text": 0.3,  # 기본 0.4 — 글자 경계 검출 완화
+    "contrast_ths": 0.05,  # 기본 0.1 — 저대비 텍스트 허용
+}
 
 
 # 슬라임 툴팁용 화이트리스트: 한글 음절 + 숫자 + '#' + 공백 + 영문 (영문 이름 슬라임 대비)
@@ -619,9 +641,16 @@ class Agent:
     ) -> str:
         if preprocess == "binary":
             processed = _preprocess_binary(img, scale=int(scale))
+        elif preprocess == "grayscale":
+            processed = _preprocess_grayscale(img, scale=scale)
         else:
             processed = _preprocess_for_ocr(img, scale=scale)
-        kwargs: dict = {"detail": 0, "paragraph": True, "decoder": decoder}
+        kwargs: dict = {
+            "detail": 0,
+            "paragraph": True,
+            "decoder": decoder,
+            **OCR_DETECTION_KWARGS,
+        }
         if allowlist:
             kwargs["allowlist"] = allowlist
         try:
@@ -689,13 +718,15 @@ class Agent:
             tb["h"],
         )
 
-        # 3단계 OCR 시도: 각 시도가 canonical과 매칭되면 즉시 채택.
-        #   1) normal preprocessing + beamsearch  (기본)
-        #   2) binary preprocessing + beamsearch  (흰 글자 이진화 fallback)
-        #   3) normal preprocessing + greedy      (속도 빠른 기본)
+        # 4단계 OCR 시도: 각 시도가 canonical과 매칭되면 즉시 채택.
+        #   1) normal    + beamsearch  (LANCZOS 5x + contrast/sharpen/median)
+        #   2) binary    + beamsearch  (흰 글자 이진화 + NEAREST 5x)
+        #   3) grayscale + beamsearch  (채도 제거 + 강한 대비)
+        #   4) normal    + greedy      (빠른 fallback)
         attempts = [
             ("normal", "beamsearch"),
             ("binary", "beamsearch"),
+            ("grayscale", "beamsearch"),
             ("normal", "greedy"),
         ]
         last_num: Optional[int] = None
@@ -789,23 +820,51 @@ class Agent:
         sct = sct or self.sct
         d = self.cfg["dialog"]
         img = self._grab_rgb_with(sct, d["x"], d["y"], d["w"], d["h"])
-        # 대화창 글자는 툴팁보다 큼. 1.6배 정도만 확대해도 충분. 속도 우선.
-        processed = _preprocess_for_ocr(img, scale=1.6)
+
+        # 대화창은 두 가지 전처리를 모두 시도한 뒤 라인을 합집합.
+        #   normal: 일반 업스케일+샤픈 — 흐릿한 색 있는 텍스트도 잡음
+        #   binary: 흰색 글자만 이진화 — 마후/아만처럼 흰색 UI 텍스트에 최적
+        # 두 결과를 합쳐 union으로 처리 → 어느 쪽이든 마후 라인이 보이면 성공.
+        proc_normal = _preprocess_for_ocr(img, scale=1.8)
+        proc_binary = _preprocess_binary(img, scale=3, threshold=180)
+
+        lines_normal: list[str] = []
+        lines_binary: list[str] = []
         try:
-            # 전용 리더 사용 — 메인 스레드 OCR과 완전 독립
-            lines = self.dialog_reader.readtext(
-                processed, detail=0, paragraph=False
+            lines_normal = self.dialog_reader.readtext(
+                proc_normal,
+                detail=0,
+                paragraph=False,
+                decoder="beamsearch",
+                **OCR_DETECTION_KWARGS,
             )
         except Exception as e:
-            print(f"  [dialog ocr error] {e}")
-            return
+            print(f"  [dialog ocr normal error] {e}")
+        try:
+            lines_binary = self.dialog_reader.readtext(
+                proc_binary,
+                detail=0,
+                paragraph=False,
+                decoder="beamsearch",
+                **OCR_DETECTION_KWARGS,
+            )
+        except Exception as e:
+            print(f"  [dialog ocr binary error] {e}")
+
+        lines = lines_normal + lines_binary
+        if DEBUG_OCR:
+            self._dbg_save(
+                "dialog-normal", proc_normal, " | ".join(lines_normal)
+            )
+            self._dbg_save(
+                "dialog-binary", proc_binary, " | ".join(lines_binary)
+            )
 
         # 한 줄로 병합된 OCR 결과에서 마후 패턴도 찾을 수 있도록 join된 버전도 사용
         joined = " ".join(l.strip() for l in lines if l).strip()
 
         if DEBUG_OCR:
-            self._dbg_save("dialog-raw", img)
-            self._dbg_save("dialog-proc", processed, joined)
+            self._dbg_save("dialog-raw", img, joined)
 
         new_lines = []
         for raw in lines:
