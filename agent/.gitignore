@@ -8,3 +8,5 @@ __pycache__/
 debug/
 templates/
 agent.log
+*.png
+!templates/.gitkeep
