@@ -392,11 +392,12 @@ def _preprocess_grayscale(img: np.ndarray, scale: float = 5.0) -> np.ndarray:
     return np.array(pil)
 
 
-# EasyOCR detection 임계값을 완화해서 흐릿한 글자도 감지.
+# EasyOCR detection 임계값. 기본보다 약간만 완화 (너무 낮추면 detection이
+# 많아져서 오히려 느려짐).
 OCR_DETECTION_KWARGS = {
-    "text_threshold": 0.5,  # 기본 0.7 — 낮을수록 희미한 글자 감지
-    "low_text": 0.3,  # 기본 0.4 — 글자 경계 검출 완화
-    "contrast_ths": 0.05,  # 기본 0.1 — 저대비 텍스트 허용
+    "text_threshold": 0.6,  # 기본 0.7
+    "low_text": 0.35,  # 기본 0.4
+    "contrast_ths": 0.08,  # 기본 0.1
 }
 
 
@@ -538,29 +539,49 @@ class Agent:
 
     def _correct_name(self, raw: str) -> Optional[str]:
         """EasyOCR 결과를 알려진 슬라임 이름과 가장 가까운 값으로 보정.
-        CANONICAL에 없는 이름(채팅 노이즈 등)은 None 반환 → 호출부에서 폐기.
+        매칭 없으면 None 반환.
 
-        1차: 음절 레벨 유사도 (difflib, cutoff 0.35)
-        2차: 자모 레벨 유사도 (cutoff 0.4) — 1차에서 못 잡은 심한 오타 대응.
+        핵심 규칙: 첫 음절 자모 유사도 >= 0.4 인 후보만 고려.
+        예: '주텍스타'(ㅈㅜ...) vs '슈팅스타'(ㅅㅠ...) — 첫 음절 자모가 전혀
+        달라 ratio 0. 후보에서 제외됨. '셰'(ㅅㅖ) vs '세'(ㅅㅔ)는 ratio 0.5
+        라 통과. 슈팅↔이븐 같은 끝이 같은 이름끼리의 swap을 막음.
         """
         if not raw or not self.known_slimes:
             return None
 
-        # 비교용 정규화: 공백 제거 후 매칭, 찾으면 원본(공백 포함) 리턴
         norm_raw = re.sub(r"\s+", "", raw)
         norm_map = {re.sub(r"\s+", "", s): s for s in self.known_slimes}
         norm_keys = list(norm_map.keys())
 
-        # 정확히 일치하면 바로
         if norm_raw in norm_map:
             best = norm_map[norm_raw]
             if best != raw:
                 print(f"      [autocorrect] '{raw}' → '{best}'")
             return best
 
-        # 1차: 음절 레벨
+        if not norm_raw:
+            return None
+
+        # 첫 음절 자모 유사도 >= 0.3 인 후보만 남김.
+        # 0.3 은 "평(ㅍㅕㅇ) vs 펌(ㅍㅓㅁ) = 0.33" 같은 경미한 변형 허용, 반면
+        # "주(ㅈㅜ) vs 슈(ㅅㅠ) = 0" 처럼 첫 자음+모음 완전 다른 건 차단.
+        raw_first_jamo = _to_jamo(norm_raw[0])
+        eligible: list[str] = []
+        for k in norm_keys:
+            if not k:
+                continue
+            cand_first_jamo = _to_jamo(k[0])
+            r = difflib.SequenceMatcher(
+                None, raw_first_jamo, cand_first_jamo
+            ).ratio()
+            if r >= 0.3:
+                eligible.append(k)
+        if not eligible:
+            return None
+
+        # 1차: 음절 레벨 (eligible 내에서만)
         matches = difflib.get_close_matches(
-            norm_raw, norm_keys, n=1, cutoff=0.35
+            norm_raw, eligible, n=1, cutoff=0.35
         )
         if matches:
             best = norm_map[matches[0]]
@@ -568,11 +589,11 @@ class Agent:
                 print(f"      [autocorrect:syl] '{raw}' → '{best}'")
             return best
 
-        # 2차: 자모 레벨
+        # 2차: 자모 레벨 (eligible 내에서만)
         raw_jamo = _to_jamo(norm_raw)
         best_key = None
         best_ratio = 0.0
-        for key in norm_keys:
+        for key in eligible:
             r = difflib.SequenceMatcher(
                 None, raw_jamo, _to_jamo(key)
             ).ratio()
@@ -586,7 +607,6 @@ class Agent:
             )
             return best
 
-        # 어느 단계에서도 충분히 유사하지 않음 → 채팅/노이즈로 간주
         return None
 
     def _dbg_save(self, name: str, img: np.ndarray, text: str = "") -> None:
@@ -718,16 +738,13 @@ class Agent:
             tb["h"],
         )
 
-        # 4단계 OCR 시도: 각 시도가 canonical과 매칭되면 즉시 채택.
-        #   1) normal    + beamsearch  (LANCZOS 5x + contrast/sharpen/median)
-        #   2) binary    + beamsearch  (흰 글자 이진화 + NEAREST 5x)
-        #   3) grayscale + beamsearch  (채도 제거 + 강한 대비)
-        #   4) normal    + greedy      (빠른 fallback)
+        # 2단계 OCR 시도 (속도 우선):
+        #   1) normal + greedy  (LANCZOS 업스케일 + 샤픈)
+        #   2) binary + greedy  (흰색 이진화 fallback)
+        # 각 시도가 canonical 매칭되면 즉시 채택.
         attempts = [
-            ("normal", "beamsearch"),
-            ("binary", "beamsearch"),
-            ("grayscale", "beamsearch"),
             ("normal", "greedy"),
+            ("binary", "greedy"),
         ]
         last_num: Optional[int] = None
         last_name: str = ""
@@ -820,45 +837,19 @@ class Agent:
         sct = sct or self.sct
         d = self.cfg["dialog"]
         img = self._grab_rgb_with(sct, d["x"], d["y"], d["w"], d["h"])
-
-        # 대화창은 두 가지 전처리를 모두 시도한 뒤 라인을 합집합.
-        #   normal: 일반 업스케일+샤픈 — 흐릿한 색 있는 텍스트도 잡음
-        #   binary: 흰색 글자만 이진화 — 마후/아만처럼 흰색 UI 텍스트에 최적
-        # 두 결과를 합쳐 union으로 처리 → 어느 쪽이든 마후 라인이 보이면 성공.
-        proc_normal = _preprocess_for_ocr(img, scale=1.8)
-        proc_binary = _preprocess_binary(img, scale=3, threshold=180)
-
-        lines_normal: list[str] = []
-        lines_binary: list[str] = []
+        # 대화창은 단일 빠른 패스 — latency가 중요하므로 greedy + 기본 전처리만
+        processed = _preprocess_for_ocr(img, scale=1.6)
         try:
-            lines_normal = self.dialog_reader.readtext(
-                proc_normal,
+            lines = self.dialog_reader.readtext(
+                processed,
                 detail=0,
                 paragraph=False,
-                decoder="beamsearch",
+                decoder="greedy",
                 **OCR_DETECTION_KWARGS,
             )
         except Exception as e:
-            print(f"  [dialog ocr normal error] {e}")
-        try:
-            lines_binary = self.dialog_reader.readtext(
-                proc_binary,
-                detail=0,
-                paragraph=False,
-                decoder="beamsearch",
-                **OCR_DETECTION_KWARGS,
-            )
-        except Exception as e:
-            print(f"  [dialog ocr binary error] {e}")
-
-        lines = lines_normal + lines_binary
-        if DEBUG_OCR:
-            self._dbg_save(
-                "dialog-normal", proc_normal, " | ".join(lines_normal)
-            )
-            self._dbg_save(
-                "dialog-binary", proc_binary, " | ".join(lines_binary)
-            )
+            print(f"  [dialog ocr error] {e}")
+            return
 
         # 한 줄로 병합된 OCR 결과에서 마후 패턴도 찾을 수 있도록 join된 버전도 사용
         joined = " ".join(l.strip() for l in lines if l).strip()
