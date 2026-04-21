@@ -345,7 +345,7 @@ DEBUG_OCR = os.environ.get("AGENT_DEBUG_OCR", "").strip().lower() not in (
 )
 
 
-def _preprocess_for_ocr(img: np.ndarray, scale: int = 3) -> np.ndarray:
+def _preprocess_for_ocr(img: np.ndarray, scale: float = 3.0) -> np.ndarray:
     """작은 픽셀 글자를 OCR에 먹이기 전에 확대 + 대비/샤픈."""
     h, w = img.shape[:2]
     if h == 0 or w == 0:
@@ -355,6 +355,26 @@ def _preprocess_for_ocr(img: np.ndarray, scale: int = 3) -> np.ndarray:
     pil = ImageEnhance.Contrast(pil).enhance(1.7)
     pil = ImageEnhance.Sharpness(pil).enhance(1.6)
     pil = pil.filter(ImageFilter.DETAIL)
+    # 미세 노이즈 제거
+    pil = pil.filter(ImageFilter.MedianFilter(3))
+    return np.array(pil)
+
+
+def _preprocess_binary(img: np.ndarray, scale: int = 5, threshold: int = 160) -> np.ndarray:
+    """흰색(밝은) 글자만 남기고 이진화한 뒤 NEAREST 업스케일.
+    게임 UI 텍스트처럼 배경 대비가 높은 밝은 글자에 효과적.
+    """
+    h, w = img.shape[:2]
+    if h == 0 or w == 0:
+        return img
+    if img.ndim == 3:
+        # 최대 채널값 = 픽셀의 밝기 (흰색 계열일수록 크다)
+        gray = img.max(axis=2)
+    else:
+        gray = img
+    binary = np.where(gray > threshold, 255, 0).astype(np.uint8)
+    pil = Image.fromarray(binary, mode="L").convert("RGB")
+    pil = pil.resize((w * scale, h * scale), Image.NEAREST)
     return np.array(pil)
 
 
@@ -594,9 +614,14 @@ class Agent:
         tag: str = "",
         scale: float = 3.0,
         allowlist: Optional[str] = None,
+        preprocess: str = "normal",
+        decoder: str = "greedy",
     ) -> str:
-        processed = _preprocess_for_ocr(img, scale=scale)
-        kwargs: dict = {"detail": 0, "paragraph": True}
+        if preprocess == "binary":
+            processed = _preprocess_binary(img, scale=int(scale))
+        else:
+            processed = _preprocess_for_ocr(img, scale=scale)
+        kwargs: dict = {"detail": 0, "paragraph": True, "decoder": decoder}
         if allowlist:
             kwargs["allowlist"] = allowlist
         try:
@@ -607,7 +632,7 @@ class Agent:
         text = " ".join(l.strip() for l in lines if l).strip()
         if DEBUG_OCR and tag:
             self._dbg_save(f"{tag}-raw", img)
-            self._dbg_save(f"{tag}-proc", processed, text)
+            self._dbg_save(f"{tag}-proc-{preprocess}", processed, text)
         return text
 
     def _parse_tooltip(self, text: str) -> tuple[Optional[int], str]:
@@ -634,6 +659,24 @@ class Agent:
                 return num, name
         return None, t.strip()
 
+    def _try_tooltip_ocr(
+        self, img: np.ndarray, tag: str, preprocess: str, decoder: str
+    ) -> tuple[Optional[int], str, Optional[str], str]:
+        """한 번의 OCR 시도. (num, raw_name, corrected_or_None, raw_text) 반환."""
+        text = self._ocr(
+            img,
+            tag=tag,
+            scale=5,
+            allowlist=_TOOLTIP_ALLOWLIST,
+            preprocess=preprocess,
+            decoder=decoder,
+        )
+        num, name = self._parse_tooltip(text)
+        if num is None or not name or len(name) < 2:
+            return None, name or "", None, text
+        corrected = self._correct_name(name)
+        return num, name, corrected, text
+
     def _scan_one_lane(self, lane_no: int, lane: dict) -> Optional[dict]:
         tb = self.cfg.get("tooltip_bbox", DEFAULT_TOOLTIP_BBOX)
         hover_ms = self.cfg.get("hover_wait_ms", 280)
@@ -645,22 +688,38 @@ class Agent:
             tb["w"],
             tb["h"],
         )
-        # 툴팁은 '#숫자 이름' 형식이므로 화이트리스트 + 5배 확대로 정확도 극대화
-        text = self._ocr(
-            img, tag=f"lane{lane_no}", scale=5, allowlist=_TOOLTIP_ALLOWLIST
-        )
-        num, name = self._parse_tooltip(text)
-        ok = num is not None and name and len(name) >= 2
-        status = "OK" if ok else "MISS"
-        print(f"    레인{lane_no}: '{text}' → #{num} {name} [{status}]")
-        if not ok:
-            return None
-        corrected = self._correct_name(name)
-        if corrected is None:
-            # 20마리 로스터와 어느 정도도 유사하지 않음 → 채팅 등 노이즈로 간주
-            print(f"    레인{lane_no}: '{name}' 은 로스터 외 이름 [REJECTED]")
-            return None
-        return {"lane": lane_no, "slime": corrected, "number": num}
+
+        # 3단계 OCR 시도: 각 시도가 canonical과 매칭되면 즉시 채택.
+        #   1) normal preprocessing + beamsearch  (기본)
+        #   2) binary preprocessing + beamsearch  (흰 글자 이진화 fallback)
+        #   3) normal preprocessing + greedy      (속도 빠른 기본)
+        attempts = [
+            ("normal", "beamsearch"),
+            ("binary", "beamsearch"),
+            ("normal", "greedy"),
+        ]
+        last_num: Optional[int] = None
+        last_name: str = ""
+        last_text: str = ""
+        for pre, dec in attempts:
+            num, name, corrected, text = self._try_tooltip_ocr(
+                img, f"lane{lane_no}-{pre}-{dec}", pre, dec
+            )
+            last_num, last_name, last_text = num, name, text
+            if corrected is not None:
+                print(
+                    f"    레인{lane_no}: '{text}' → #{num} {name} [{pre}/{dec}] → {corrected}"
+                )
+                return {"lane": lane_no, "slime": corrected, "number": num}
+
+        # 모든 시도 실패
+        if last_num is None:
+            print(f"    레인{lane_no}: '{last_text}' → MISS")
+        else:
+            print(
+                f"    레인{lane_no}: '{last_text}' → #{last_num} {last_name} [REJECTED - 로스터 외]"
+            )
+        return None
 
     def _scan_missing_lanes(self) -> None:
         """partial_lineup에서 아직 채워지지 않은 레인만 재시도."""
