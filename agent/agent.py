@@ -382,20 +382,24 @@ def _preprocess_binary(img: np.ndarray, scale: int = 5, threshold: int = 180) ->
 def _auto_crop_text(
     img: np.ndarray,
     bright_threshold: int = 200,
-    min_cols: int = 5,
-    merge_gap: int = 6,
+    min_cols: int = 4,
+    merge_gap: int = 8,
 ) -> np.ndarray:
-    """이미지에서 '최하단' 텍스트 밴드만 남기고 크롭.
+    """이미지에서 '최하단' 흰색 텍스트 밴드만 남기고 크롭.
 
-    툴팁은 항상 cursor 바로 위(=캡처의 아래쪽)에 뜨므로, 상단의 Login 바,
-    [진행자] 라벨, 캐릭터 이름 등 UI 텍스트 노이즈는 제외하고 가장 하단의
-    텍스트 덩어리만 골라낸다.
+    툴팁은 항상 cursor 바로 위(=캡처의 아래쪽)에 뜨고 흰색 계열 글자임.
+    주의: RGB max() 기준으로 판정하면 노란 슬라임 몸체도 "bright" 로 잡혀
+    최하단 밴드가 슬라임 몸체를 가리키게 됨. R/G/B 모두 밝은 픽셀만
+    텍스트로 인정.
     """
     h, w = img.shape[:2]
     if h == 0 or w == 0:
         return img
-    gray = img.max(axis=2) if img.ndim == 3 else img
-    bright = gray > bright_threshold
+    if img.ndim == 3:
+        # RGB 전 채널이 밝은 픽셀 = 흰색 계열 (노란 슬라임, 색 있는 UI 제외)
+        bright = np.all(img > bright_threshold, axis=2)
+    else:
+        bright = img > bright_threshold
 
     row_counts = bright.sum(axis=1)
     has_text = row_counts >= min_cols
