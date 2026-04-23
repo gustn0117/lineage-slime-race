@@ -35,9 +35,21 @@ function todayStr(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// "HH:MM" → "HH:MM" where MM is floored to nearest 10-min mark.
+// 경기는 10분 단위(:00, :10, :20, ...) 로 돌아가는데 에이전트가 :21 / :29 처럼
+// 분 단위 편차로 보내오면 기록 시각을 항상 :X0 로 스냅해 통일.
+function snapToTenMin(t: string): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t.trim());
+  if (!m) return t;
+  const hh = pad(Math.min(23, Math.max(0, parseInt(m[1], 10))));
+  const mm = Math.max(0, Math.min(59, parseInt(m[2], 10)));
+  const snapped = Math.floor(mm / 10) * 10;
+  return `${hh}:${pad(snapped)}`;
+}
+
 function currentTimeStr(): string {
   const d = new Date();
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return snapToTenMin(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
 }
 
 function sanitizeLanes(
@@ -120,7 +132,8 @@ export async function POST(req: NextRequest) {
       );
     }
     const date = body.date ?? todayStr();
-    const time = body.time ?? currentTimeStr();
+    // 에이전트가 :21 / :29 / :35 같은 분 단위 편차를 보내도 항상 :X0 으로 내림.
+    const time = snapToTenMin(body.time ?? currentTimeStr());
 
     const all = await listRaces();
 

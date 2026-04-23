@@ -1046,31 +1046,11 @@ class Agent:
         return [self.partial_lineup[i + 1] for i in range(len(self.cfg["lanes"]))]
 
     def _race_time_struct(self) -> time.struct_time:
-        """기록용 race 시각.
-
-        경기 스케줄은 매 10분 (:00, :10, :20, ...). 아만 'N분 전' 알림으로
-        얻은 expected_race_ts 또는 현재 시각을 **가장 가까운 10분 마크**로
-        스냅해서 실제 경기 시각과 일치시킨다.
-
-        예: 11:28:45 에 아만 '1분 전' → now+60 = 11:29:45 → 스냅 → 11:30.
-        아만 신호를 놓쳐 fallback 시에도 :29 / :35 / :39 같은 어긋난 시각이
-        기록되는 걸 방지.
+        """기록용 race 시각. expected_race_ts(아만 N분전 기반) 또는 현재 시각.
+        10분 마크 스냅은 서버 쪽 ingest 라우트가 분 단위 내림(floor)으로 처리.
         """
         ts = self.expected_race_ts if self.expected_race_ts else time.time()
-        lt = time.localtime(ts)
-        # 분 단위로 가장 가까운 10분 배수로 반올림 (5분이면 올림).
-        total_min = lt.tm_hour * 60 + lt.tm_min + (1 if lt.tm_sec >= 30 else 0)
-        snapped = int(round(total_min / 10.0)) * 10
-        snapped_hour, snapped_minute = divmod(snapped, 60)
-        snapped_hour %= 24
-        adjusted_epoch = time.mktime(
-            time.struct_time(
-                (lt.tm_year, lt.tm_mon, lt.tm_mday,
-                 snapped_hour, snapped_minute, 0,
-                 0, 0, -1)
-            )
-        )
-        return time.localtime(adjusted_epoch)
+        return time.localtime(ts)
 
     MIN_LANES_FOR_SEND = 3
 
