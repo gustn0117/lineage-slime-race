@@ -2,6 +2,12 @@
 
 import { LANE_COUNT, LaneStat, Race, SlimeStat } from "./types";
 
+// 공백/트레일링 스페이스 차이로 같은 슬라임이 두 행으로 쪼개지는 걸 막기 위한 정규화.
+// lib/slimes.ts 의 slimeNumber() 와 동일한 규칙이어야 #N 라벨이 일관되게 붙음.
+function canonicalSlimeName(name: string): string {
+  return (name ?? "").trim().replace(/\s+/g, "");
+}
+
 export function todayString(tzOffsetMs = 0): string {
   const d = new Date(Date.now() + tzOffsetMs);
   const y = d.getFullYear();
@@ -51,7 +57,9 @@ export function computeSlimeStats(
   for (const r of asc) {
     for (const l of r.lanes) {
       if (!l.slime) continue;
-      const s = touch(l.slime);
+      const name = canonicalSlimeName(l.slime);
+      if (!name) continue;
+      const s = touch(name);
       s.total += 1;
       if (r.winnerLane === l.lane) s.wins += 1;
       if (r.date === today) {
@@ -64,7 +72,9 @@ export function computeSlimeStats(
   for (const r of recent) {
     for (const l of r.lanes) {
       if (!l.slime) continue;
-      const s = touch(l.slime);
+      const name = canonicalSlimeName(l.slime);
+      if (!name) continue;
+      const s = touch(name);
       s.recentTotal += 1;
       if (r.winnerLane === l.lane) s.recentWins += 1;
     }
@@ -104,6 +114,12 @@ export function computeLaneStats(
 // 입력된 슬라임 이름 후보 목록 (지금까지 등장한 모든 이름)
 export function allSlimeNames(races: Race[]): string[] {
   const set = new Set<string>();
-  for (const r of races) for (const l of r.lanes) if (l.slime) set.add(l.slime);
+  for (const r of races) {
+    for (const l of r.lanes) {
+      if (!l.slime) continue;
+      const name = canonicalSlimeName(l.slime);
+      if (name) set.add(name);
+    }
+  }
   return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
 }
