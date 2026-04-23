@@ -41,6 +41,7 @@ except Exception:
 import tkinter as tk
 from tkinter import messagebox
 
+import cv2
 import numpy as np
 import pyautogui
 import requests
@@ -317,13 +318,27 @@ class SetupWindow:
 # --------------------------------------------------------------------------- #
 
 
-# 마후 우승 패턴. 접두(마후) 요구 안 함 — OCR이 '마루','마두' 등으로 흘려도 됨.
-# 구조: "제 <회차>회" + '우X자' + (선택 # or 6 오탐) + 번호 + 이름 + '입X다'.
-# 이름은 공백 포함 가능 ('캐논 보이', '엘븐 애로우' 등) — 입X다 앵커까지 lazy 캡처.
-# 말미 '입X다' 앵커로 엉뚱한 '1 입배' 같은 걸 잡는 걸 방지.
+# 마후 우승 패턴 (엄격). 1차 시도. 구조:
+#   "제 <회차>회" + '우X자' + [선택 # or 오탐] + 번호 + 이름 + '입X다'
+# 이름은 공백 포함 가능 ('캐논 보이' 등) — 입X다 앵커까지 lazy 캡처.
+# '입X다' 말미 앵커로 엉뚱한 '1 입배' 오매칭 방지.
 MAHU_PATTERN = re.compile(
     r"제\s*(\d+)\s*회.*?우\S{0,2}자.*?[\"'“”]?\s*[#＃6@]?\s*(\d{1,4})\s+"
     r"(\S.*?)\s*[\"'“”]?\s*입\S{0,2}다"
+)
+
+# Loose 패턴. '입니다' 나 '제 N회' 가 OCR에서 깨지는 경우를 대비한 느슨한 fallback.
+# 조건: '우승' 계열 키워드 + (번호) + (이름). 앵커는 따옴표 / 줄끝 / 감탄부호.
+# round_no 는 별도 추출 (없으면 0).
+MAHU_LOOSE_PATTERN = re.compile(
+    r"(?:마\S{0,2}[후루무]|우\S{0,2}[자지]|우승)"
+    r".*?[\"'“”]?\s*[#＃6@8]?\s*(\d{1,4})\s+(\S.{1,20}?)"
+    r"\s*(?:[\"'“”\)\]!！\|]|\s입|\s이|\s압|\s일|$)"
+)
+MAHU_ROUND_PATTERN = re.compile(r"제\s*(\d+)\s*회")
+# '마후' 또는 '우승' 계열 컨텍스트 존재 여부 판정용
+MAHU_CONTEXT_PATTERN = re.compile(
+    r"마\S{0,2}[후루무두]|우\S{0,2}[자지]|우승|수상|우\s*승"
 )
 
 # 아만 "경기 시작 N분전" — 접두(아만) 요구 없이 핵심 문구로만 매칭.
@@ -498,6 +513,31 @@ CANONICAL_SLIMES: list[str] = [
     "펌블",
 ]
 
+# 공식 슬라임 번호 (lib/slimes.ts 와 동일). 템플릿 매칭이 히트했을 때
+# OCR 없이 바로 번호를 내려주기 위한 맵.
+SLIME_NUMBER_MAP: dict[str, int] = {
+    "가버너": 1,
+    "영이글": 2,
+    "세인트라이트": 3,
+    "글루디아": 4,
+    "캐논보이": 5,
+    "레이디호크": 6,
+    "라이트닝": 7,
+    "가디안": 8,
+    "이븐스타": 9,
+    "슈퍼블랙": 10,
+    "마키아벨리": 11,
+    "마이베이비": 12,
+    "슈팅스타": 13,
+    "뷸렛": 14,
+    "엘븐애로우": 15,
+    "사이하": 16,
+    "호크윈드": 17,
+    "펠컨": 18,
+    "펌블": 19,
+    "젤리피쉬": 20,
+}
+
 # 한글 자모 분해용
 _CHOSUNG = list("ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ")
 _JUNGSUNG = list("ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ")
@@ -578,6 +618,13 @@ class Agent:
         self.seen_lines: set[str] = set()
         # 실패한 레인 재시도를 위한 부분 라인업
         self.partial_lineup: dict[int, dict] = {}
+        # 현재 경기의 확정된 라인업 슬라임 이름 집합 (정규화된 키).
+        # 우승자 후보는 반드시 이 집합 안에 있어야 함 → 이븐스타↔슈팅스타 같은
+        # OCR swap 오탐을 원천 차단. 라인업 전송 시 set, 경기 종료 시 clear.
+        self.current_lineup_keys: set[str] = set()
+        # 이번 경기의 예상 race 시작 시각. 아만 "N분 전" 수신 시 now + N*60 로 계산.
+        # 기록될 race 의 HH:MM 은 이 값 기준으로 내려야 실제 경기 시각과 일치.
+        self.expected_race_ts: Optional[float] = None
         # 두 리더가 다르므로 락은 더 이상 필요 없음
         self._stop_event = threading.Event()
         self._dialog_thread: Optional[threading.Thread] = None
@@ -591,41 +638,86 @@ class Agent:
         self._fetch_known_slimes()
         print(f"[init] 보정 대상 슬라임 {len(self.known_slimes)}마리: {', '.join(self.known_slimes[:10])}...")
 
-        # 템플릿 자동 수집 상태 보고.
-        # auto-crop 으로 저장된 최신 템플릿은 폭·높이가 텍스트에 딱 맞아 비교적
-        # 작음(대략 250x40 이내). 그보다 크면 예전의 잘린/원본 bbox 그대로
-        # 저장된 파일이므로 삭제하고 재수집.
-        tdir = _template_dir()
-        removed = 0
-        for p in list(tdir.glob("*.png")):
-            try:
-                with Image.open(p) as im:
-                    if im.size[0] > 260 or im.size[1] > 70:
-                        p.unlink()
-                        removed += 1
-            except Exception:
-                p.unlink(missing_ok=True)
-                removed += 1
-        if removed:
-            print(
-                f"[init] 과거 잘린 템플릿 {removed}장 삭제, 재수집 예정"
-            )
-        saved_templates = {p.stem for p in tdir.glob("*.png")}
+        # 템플릿 매칭 로드: templates/ 폴더의 PNG 를 전부 읽어 auto-crop 한 뒤
+        # cv2.matchTemplate 용 grayscale np.ndarray 로 변환해 메모리 보관.
+        # 매 레인 스캔 시 이 템플릿들을 실시간 캡처에 슬라이드시켜 최고 점수를 찾음.
+        # 히트 시 OCR 을 건너뛰고 이름 + 번호를 즉시 확정 → 100% 가까운 인식률.
+        self.templates: list[tuple[str, int, np.ndarray]] = self._load_templates()
+        saved_templates = {re.sub(r"\s+", "", n) for n, _, _ in self.templates}
         missing = [
             s for s in CANONICAL_SLIMES
             if re.sub(r"\s+", "", s) not in saved_templates
         ]
         print(
-            f"[init] 슬라임 템플릿 {len(saved_templates)}/{len(CANONICAL_SLIMES)} 수집됨 → {tdir}"
+            f"[init] 템플릿 매칭 {len(self.templates)}/{len(CANONICAL_SLIMES)} 로드됨 → {_template_dir()}"
         )
         if missing:
-            print(f"       아직 수집 안 된 슬라임: {', '.join(missing)}")
+            print(f"       템플릿 없음(OCR fallback): {', '.join(missing)}")
         else:
-            print("       모든 슬라임 템플릿 수집 완료. 이 폴더 zip 으로 개발자에게 전달.")
+            print("       모든 슬라임 템플릿 로드 완료 → OCR 없이 매칭 가능.")
 
         if DEBUG_OCR:
             print(f"[init] AGENT_DEBUG_OCR 켜짐. 캡처 결과를 {_debug_dir()} 에 저장합니다.")
         print("[init] 준비 완료.")
+
+    def _load_templates(self) -> list[tuple[str, int, np.ndarray]]:
+        """templates/ 폴더의 PNG 를 읽어 (canonical_name, number, gray_np) 리스트로 반환.
+
+        - 파일명 = 공백 제거된 슬라임 이름 (예: 캐논보이.png).
+        - 각 이미지는 _auto_crop_text 로 텍스트 밴드만 남긴 뒤 grayscale 변환.
+        - 메모리에 캐시. matchTemplate 은 매 스캔마다 이 리스트를 슬라이드.
+        """
+        out: list[tuple[str, int, np.ndarray]] = []
+        tdir = _template_dir()
+        # CANONICAL 이름을 정규화된 키로 역매핑 (파일명 → 원본 canonical 이름)
+        canon_by_norm = {re.sub(r"\s+", "", s): s for s in CANONICAL_SLIMES}
+        for p in sorted(tdir.glob("*.png")):
+            norm = p.stem
+            canonical = canon_by_norm.get(norm, norm)
+            number = SLIME_NUMBER_MAP.get(norm)
+            if number is None:
+                print(f"  [template skip] '{p.name}' 번호 매핑 없음")
+                continue
+            try:
+                with Image.open(p) as im:
+                    rgb = np.array(im.convert("RGB"))
+            except Exception as e:
+                print(f"  [template load error] {p.name}: {e}")
+                continue
+            cropped = _auto_crop_text(rgb)
+            if cropped.size == 0 or cropped.shape[0] < 6 or cropped.shape[1] < 20:
+                # auto-crop 실패 → 원본 사용
+                cropped = rgb
+            gray = cv2.cvtColor(cropped, cv2.COLOR_RGB2GRAY)
+            out.append((canonical, number, gray))
+        return out
+
+    def _match_template(
+        self, capture: np.ndarray, threshold: float = 0.75
+    ) -> Optional[tuple[str, int, float]]:
+        """캡처 이미지에서 로드된 템플릿 중 가장 높은 점수의 매칭을 반환.
+        (canonical_name, number, score) 또는 None.
+
+        TM_CCOEFF_NORMED 정규화 상관계수 사용. 배경 밝기 변화에 강하고,
+        게임 UI 텍스트처럼 픽셀 단위로 고정된 렌더링에 거의 1.0 점을 줌.
+        threshold 0.75 는 안전 여유 — 실제 히트는 대부분 0.9+ 로 찍힘.
+        """
+        if not self.templates:
+            return None
+        if capture.size == 0:
+            return None
+        cap_gray = cv2.cvtColor(capture, cv2.COLOR_RGB2GRAY)
+        cap_h, cap_w = cap_gray.shape
+        best: Optional[tuple[str, int, float]] = None
+        for name, number, tpl in self.templates:
+            th, tw = tpl.shape
+            if th > cap_h or tw > cap_w:
+                continue
+            result = cv2.matchTemplate(cap_gray, tpl, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            if max_val >= threshold and (best is None or max_val > best[2]):
+                best = (name, number, float(max_val))
+        return best
 
     def _fetch_known_slimes(self) -> None:
         """서버에 있는 슬라임 이름도 병합 (공식 리스트에 없는 새 이름 대비)."""
@@ -887,10 +979,21 @@ class Agent:
             tb["h"],
         )
 
-        # 2단계 OCR 시도 (속도 우선):
-        #   1) normal + greedy  (LANCZOS 업스케일 + 샤픈)
-        #   2) binary + greedy  (흰색 이진화 fallback)
-        # 각 시도가 canonical 매칭되면 즉시 채택.
+        # 1단계: 템플릿 매칭. 로드된 17개 슬라임 중 하나가 캡처 안에 정확히
+        # 나타나면 OCR 없이 이름·번호를 즉시 확정 (점수 >= 0.75).
+        tm = self._match_template(img)
+        if tm is not None:
+            name, number, score = tm
+            print(
+                f"    레인{lane_no}: [template] #{number} {name} (score={score:.3f})"
+            )
+            if DEBUG_OCR:
+                self._dbg_save(f"lane{lane_no}-template-hit", img, f"{name} score={score:.3f}")
+            return {"lane": lane_no, "slime": name, "number": number}
+
+        # 2단계: 템플릿 미스 (펠컨/뷸렛/펌블 또는 스크롤로 가려진 경우) → OCR.
+        # 2-a) normal + greedy  (LANCZOS 업스케일 + 샤픈)
+        # 2-b) binary + greedy  (흰색 이진화 fallback)
         attempts = [
             ("normal", "greedy"),
             ("binary", "greedy"),
@@ -942,16 +1045,35 @@ class Agent:
             return None
         return [self.partial_lineup[i + 1] for i in range(len(self.cfg["lanes"]))]
 
+    def _race_time_struct(self) -> time.struct_time:
+        """기록용 race 시각. 아만 '경기 시작 N분전' 기반 `expected_race_ts` 가
+        있으면 그걸, 없으면 현재 로컬 시각을 사용.
+        lineup 을 아만 알림 1~5분 전에 전송하면 로컬 시각으로 기록되는 게
+        실제 race 시각과 어긋나는 문제를 방지.
+        """
+        ts = self.expected_race_ts if self.expected_race_ts else time.time()
+        return time.localtime(ts)
+
     def _send_lineup(self, lanes: list[dict]) -> None:
         sig = json.dumps(lanes, ensure_ascii=False, sort_keys=True)
         if sig == self.last_lineup_sig:
             return
         self.last_lineup_sig = sig
         self.last_lineup_send_ts = time.time()
+
+        # 현재 라인업의 슬라임 이름을 정규화해서 캐시. 우승자 OCR 추출 시
+        # 이 집합 밖의 이름은 거부 → 이븐스타↔슈팅스타 같은 swap 오탐 차단.
+        self.current_lineup_keys = {
+            re.sub(r"\s+", "", str(l.get("slime") or ""))
+            for l in lanes
+            if l.get("slime")
+        }
+        self.current_lineup_keys.discard("")
+
         # 에이전트 로컬 시각으로 date/time 명시 → 서버 TZ가 UTC여도 한국 시간 반영
-        now = time.localtime()
-        date_str = time.strftime("%Y-%m-%d", now)
-        time_str = time.strftime("%H:%M", now)
+        race_struct = self._race_time_struct()
+        date_str = time.strftime("%Y-%m-%d", race_struct)
+        time_str = time.strftime("%H:%M", race_struct)
         try:
             r = requests.post(
                 f"{self.cfg['server_url']}/api/races/ingest",
@@ -985,12 +1107,16 @@ class Agent:
         arr = np.array(shot)
         return arr[:, :, [2, 1, 0]]
 
-    def _scan_dialog(self, sct=None) -> None:
-        sct = sct or self.sct
-        d = self.cfg["dialog"]
-        img = self._grab_rgb_with(sct, d["x"], d["y"], d["w"], d["h"])
-        # 대화창은 단일 빠른 패스 — latency가 중요하므로 greedy + 기본 전처리만
-        processed = _preprocess_for_ocr(img, scale=1.6)
+    def _dialog_ocr_lines(
+        self, img: np.ndarray, scale: float, preprocess: str
+    ) -> list[str]:
+        """대화창 OCR 한 번 실행하고 라인 리스트 반환. 실패 시 빈 리스트."""
+        if preprocess == "binary":
+            processed = _preprocess_binary(img, scale=int(round(scale)))
+        elif preprocess == "grayscale":
+            processed = _preprocess_grayscale(img, scale=scale)
+        else:
+            processed = _preprocess_for_ocr(img, scale=scale)
         try:
             lines = self.dialog_reader.readtext(
                 processed,
@@ -1001,19 +1127,83 @@ class Agent:
             )
         except Exception as e:
             print(f"  [dialog ocr error] {e}")
-            return
+            return []
+        return [l.strip() for l in lines if l and l.strip()]
 
-        # 한 줄로 병합된 OCR 결과에서 마후 패턴도 찾을 수 있도록 join된 버전도 사용
-        joined = " ".join(l.strip() for l in lines if l).strip()
+    def _clean_name(self, name: str) -> str:
+        name = re.sub(r"^[-_\.\,\|\!\?\"'“”\(\[\s]+", "", name)
+        name = re.sub(r"[-_\.\,\|\!\?\"'“”\)\]\s]+$", "", name)
+        return name.strip()
+
+    def _try_find_winner(self, line: str) -> Optional[tuple[int, int, str]]:
+        """한 줄 텍스트에서 (round_no, number, name) 추출 시도.
+        1) 엄격 MAHU_PATTERN — '제 N회 ... 우X자 ... #번호 이름 ... 입X다'
+        2) Loose MAHU_LOOSE_PATTERN — '우승' 계열 키워드 + 번호 + 이름
+        3) Keyword + canonical slime 이름 — OCR에 알려진 슬라임 이름이 들어있는지
+        """
+        # 1) 엄격 패턴
+        m = MAHU_PATTERN.search(line)
+        if m:
+            return int(m.group(1)), int(m.group(2)), self._clean_name(m.group(3))
+
+        # 우승 컨텍스트 없으면 여기서 스톱 (채팅 잡음 오인 방지)
+        if not MAHU_CONTEXT_PATTERN.search(line):
+            return None
+
+        round_m = MAHU_ROUND_PATTERN.search(line)
+        round_no = int(round_m.group(1)) if round_m else 0
+
+        # 2) Loose 패턴 (번호 + 이름)
+        m = MAHU_LOOSE_PATTERN.search(line)
+        if m:
+            try:
+                num = int(m.group(1))
+                name = self._clean_name(m.group(2))
+                if name and len(name) >= 2:
+                    return round_no, num, name
+            except (ValueError, IndexError):
+                pass
+
+        # 3) Canonical 슬라임 이름이 "완전히" 포함되어 있으면 승자로 간주.
+        # 라인업에 있는 슬라임 우선 (있는 경우).
+        # ※ 짧은 chunk ('스타' 등) 로 fuzzy 매칭하지 않음 —
+        #   슈팅스타↔이븐스타 같은 swap 오탐 원천 차단.
+        norm_line = re.sub(r"\s+", "", line)
+        preferred = [
+            s for s in self.known_slimes
+            if re.sub(r"\s+", "", s) in self.current_lineup_keys
+        ] or list(self.known_slimes)
+        for canonical in preferred:
+            norm_canon = re.sub(r"\s+", "", canonical)
+            # 3글자 미만 이름은 오탐 위험이 크므로 직접 매칭도 제외
+            if len(norm_canon) < 3:
+                continue
+            if norm_canon and norm_canon in norm_line:
+                number = SLIME_NUMBER_MAP.get(norm_canon, 0)
+                num_m = re.search(r"[#＃]?\s*(\d{1,3})", line)
+                if num_m:
+                    try:
+                        number = int(num_m.group(1))
+                    except ValueError:
+                        pass
+                return round_no, number, canonical
+
+        return None
+
+    def _scan_dialog(self, sct=None) -> None:
+        sct = sct or self.sct
+        d = self.cfg["dialog"]
+        img = self._grab_rgb_with(sct, d["x"], d["y"], d["w"], d["h"])
+
+        # 1차 패스: 빠른 기본 전처리
+        lines = self._dialog_ocr_lines(img, scale=1.6, preprocess="normal")
+        joined = " ".join(lines).strip()
 
         if DEBUG_OCR:
             self._dbg_save("dialog-raw", img, joined)
 
         new_lines = []
-        for raw in lines:
-            line = raw.strip()
-            if not line:
-                continue
+        for line in lines:
             key = hashlib.md5(line.encode("utf-8")).hexdigest()
             if key in self.seen_lines:
                 continue
@@ -1029,8 +1219,6 @@ class Agent:
             if m:
                 minutes = int(m.group(1))
                 now = time.time()
-                # trigger가 없거나, 5분 넘게 오래됐으면(이전 경기 것이 남아있을 수 있음)
-                # 새로 설정. 즉 매 경기마다 fresh aman 알림은 항상 반영됨.
                 stale = (
                     self.aman_trigger_ts is None
                     or now - self.aman_trigger_ts > 300
@@ -1040,6 +1228,16 @@ class Agent:
                         f"  [아만] 경기 시작 {minutes}분 전 알림 → 라인업 스캔 트리거"
                     )
                     self.aman_trigger_ts = now
+                    # expected_race_ts 갱신: 현재 + N분 = 실제 경기 시작 예상 시각.
+                    # 이 값이 race 기록의 HH:MM 으로 내려감. 가장 낮은 N분(가장 임박한)
+                    # 알림으로 덮어쓰면 더 정확.
+                    candidate_ts = now + minutes * 60
+                    if (
+                        self.expected_race_ts is None
+                        or candidate_ts < self.expected_race_ts
+                        or self.expected_race_ts - now < 0
+                    ):
+                        self.expected_race_ts = candidate_ts
                 break
 
         # 아만 "시작!" — 라인업 재시도 중단 신호
@@ -1049,22 +1247,39 @@ class Agent:
                 self.race_started = True
                 break
 
-        # 마후 우승 결과
+        # 마후 우승 결과 추출 (1차 패스).
+        winner: Optional[tuple[int, int, str, str]] = None
         for line in candidates:
-            m = MAHU_PATTERN.search(line)
-            if m:
-                round_no = int(m.group(1))
-                num = int(m.group(2))
-                name = m.group(3).strip()
-                # 이름 양끝에 '-', ',', '.', 따옴표, 파이프 등 OCR 잡음 제거
-                name = re.sub(r"^[-_\.\,\|\!\?\"'“”]+", "", name)
-                name = re.sub(r"[-_\.\,\|\!\?\"'“”]+$", "", name)
-                name = name.strip()
-                self._handle_winner(round_no, num, name, line)
-                # 우승 확정 후 상태 초기화 (다음 경기용)
-                self.aman_trigger_ts = None
-                self.race_started = False
+            got = self._try_find_winner(line)
+            if got:
+                rno, num, name = got
+                winner = (rno, num, name, line)
                 break
+
+        # 2차 패스: 1차에서 못 잡았는데 최근에 경기가 진행 중이면 (aman 신호 또는
+        # 라인업 전송 기록이 있으면) 이진화 고해상도 재OCR 로 한 번 더 시도.
+        if winner is None and self._race_likely_ongoing():
+            fallback_lines = self._dialog_ocr_lines(
+                img, scale=3.0, preprocess="binary"
+            )
+            fallback_joined = " ".join(fallback_lines).strip()
+            if DEBUG_OCR:
+                self._dbg_save("dialog-binary-retry", img, fallback_joined)
+            if fallback_joined:
+                got = self._try_find_winner(fallback_joined)
+                if got:
+                    rno, num, name = got
+                    winner = (rno, num, name, fallback_joined)
+                    print(
+                        f"  [winner-fallback] binary 재OCR 로 포착: '{fallback_joined[:120]}'"
+                    )
+
+        if winner is not None:
+            rno, num, name, raw = winner
+            self._handle_winner(rno, num, name, raw)
+            # 우승 확정 후 상태 초기화 (다음 경기용)
+            self.aman_trigger_ts = None
+            self.race_started = False
 
         # 매 스캔마다 OCR이 본 것을 항상 짧게 로그 (디버깅)
         if new_lines:
@@ -1072,6 +1287,17 @@ class Agent:
 
         if len(self.seen_lines) > 300:
             self.seen_lines = set(list(self.seen_lines)[-150:])
+
+    def _race_likely_ongoing(self) -> bool:
+        """지난 5분 이내에 아만 트리거 또는 라인업 전송이 있었으면 '진행 중'으로 간주.
+        이진화 재OCR 은 비용이 있으므로 경기 상황일 때만 돌림.
+        """
+        now = time.time()
+        if self.aman_trigger_ts and now - self.aman_trigger_ts < 300:
+            return True
+        if self.last_lineup_send_ts and now - self.last_lineup_send_ts < 300:
+            return True
+        return False
 
     def _handle_winner(
         self, round_no: int, num: int, name: str, raw: str
@@ -1084,24 +1310,41 @@ class Agent:
         if corrected_name != name:
             print(f"      [winner autocorrect] '{name}' → '{corrected_name}'")
 
-        # 60초 dedup: round 번호 + (번호,이름) 양쪽으로 중복 차단.
-        # 같은 회차가 다시 잡히면 첫 결과만 유효.
+        # 라인업 제약: 승자는 반드시 방금 확정한 5마리 중 하나여야 함.
+        # OCR 이 엉뚱한 슬라임 이름을 잡아내는 경우(슈팅스타↔이븐스타 등)를 차단.
+        # 단, 라인업 정보가 없으면(아직 전송 전이거나 라인업 스캔 실패) 통과.
+        norm_corrected = re.sub(r"\s+", "", corrected_name)
+        if self.current_lineup_keys and norm_corrected not in self.current_lineup_keys:
+            print(
+                f"      [winner] '{corrected_name}' 은 현재 라인업"
+                f"({', '.join(sorted(self.current_lineup_keys))}) 에 없음 — 전송 보류"
+            )
+            return
+
+        # 60초 dedup: round / (번호,이름) / 이름 만 세 가지 키 모두로 차단.
         now = time.time()
         self.recent_winners = {
             k: t for k, t in self.recent_winners.items() if now - t < 60
         }
         round_key = f"r:{round_no}"
-        name_key = f"n:{num}:{corrected_name}"
-        if round_key in self.recent_winners or name_key in self.recent_winners:
+        num_name_key = f"n:{num}:{corrected_name}"
+        name_only_key = f"name:{corrected_name}"
+        if (
+            round_key in self.recent_winners
+            or num_name_key in self.recent_winners
+            or name_only_key in self.recent_winners
+        ):
             return
         self.recent_winners[round_key] = now
-        self.recent_winners[name_key] = now
+        self.recent_winners[num_name_key] = now
+        self.recent_winners[name_only_key] = now
 
         print(f"  [마후] {round_no}회 우승: #{num} {corrected_name}")
-        # 클라이언트 로컬 시간도 같이 전송 → 서버 TZ 무관하게 fallback race도 한국 시간 사용
-        now_struct = time.localtime()
-        date_str = time.strftime("%Y-%m-%d", now_struct)
-        time_str = time.strftime("%H:%M", now_struct)
+        # 기록용 race 시각. lineup 전송 시 세팅한 expected_race_ts 를 재사용해
+        # 실제 경기 시각과 기록 HH:MM 이 일치하도록 함.
+        race_struct = self._race_time_struct()
+        date_str = time.strftime("%Y-%m-%d", race_struct)
+        time_str = time.strftime("%H:%M", race_struct)
         try:
             r = requests.post(
                 f"{self.cfg['server_url']}/api/races/ingest",
@@ -1187,6 +1430,9 @@ class Agent:
                         lineup_sent = False
                         self.partial_lineup = {}
                         self.race_started = False
+                        # 이전 경기 라인업/시각 상태는 제거. 새 경기 아만 알림이
+                        # 방금 expected_race_ts 를 갱신해놓았으므로 여기선 건드리지 않음.
+                        self.current_lineup_keys = set()
 
                 # 아만 알림 이후 ~3분 동안은 "곧 경기" 상태로 간주
                 aman_active = (
@@ -1252,6 +1498,9 @@ class Agent:
                     self.race_started = False
                     # 다음 경기의 '1분전' 알림을 새로 받도록 trigger도 clear
                     self.aman_trigger_ts = None
+                    # 라인업/예상시각 상태 리셋 → 다음 경기 우승자 필터가 새로 세팅됨
+                    self.current_lineup_keys = set()
+                    self.expected_race_ts = None
                     # 다음 경기 대비: 알려진 슬라임 이름 갱신
                     self._fetch_known_slimes()
             except KeyboardInterrupt:

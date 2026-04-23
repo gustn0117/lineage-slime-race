@@ -423,6 +423,13 @@ main {
   backdrop-filter: blur(4px);
 }
 
+/* 모바일에선 배너가 작아 dots 가 광고를 가림 → 숨김 (자동 슬라이드는 유지) */
+@media (max-width: 639px) {
+  .banner-dots {
+    display: none;
+  }
+}
+
 .banner-dots button {
   width: 7px;
   height: 7px;

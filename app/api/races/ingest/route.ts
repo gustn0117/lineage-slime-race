@@ -58,27 +58,9 @@ function sanitizeLanes(
   });
 }
 
-// 새 경기 이벤트(라인업 or 우승자) 들어올 때, 그보다 이전의 미확정 레이스를
-// "값 있는 첫 레인"을 우승으로 자동 확정. race가 미완인 채로 계속 남아있는 걸
-// 방지. 이미 확정된(winnerLane !== null) 레이스는 건드리지 않음.
-async function finalizeOlderPending(
-  cutoffDate: string,
-  cutoffTime: string,
-  all: Race[]
-): Promise<void> {
-  const cutoffKey = `${cutoffDate} ${cutoffTime}`;
-  for (const race of all) {
-    if (race.winnerLane !== null) continue;
-    const key = `${race.date} ${race.time}`;
-    if (key >= cutoffKey) continue;
-    const firstFilledIdx = race.lanes.findIndex(
-      (l) => l.slime && l.slime.trim().length > 0
-    );
-    if (firstFilledIdx >= 0) {
-      await saveRace({ ...race, winnerLane: firstFilledIdx + 1 });
-    }
-  }
-}
+// (과거) 이전 미확정 레이스의 첫 채운 레인을 자동 우승으로 확정하던 로직은
+// 제거됨. 우승자 OCR 을 놓친 경기를 "1레인 승"으로 잘못 기록해서 통계가 오염됨.
+// 미확정 레이스는 그대로 winnerLane === null 로 남겨서 /admin 에서 수동 확정.
 
 function nameMatches(a: string, b: string): boolean {
   if (!a || !b) return false;
@@ -142,9 +124,6 @@ export async function POST(req: NextRequest) {
 
     const all = await listRaces();
 
-    // 이전 미확정 레이스가 남아있으면 "값 있는 첫 레인"으로 자동 확정.
-    await finalizeOlderPending(date, time, all);
-
     const existing = all.find((r) => r.date === date && r.time === time);
     if (existing) {
       const updated: Race = { ...existing, lanes };
@@ -181,12 +160,6 @@ export async function POST(req: NextRequest) {
       .sort((a, b) =>
         `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`)
       )[0];
-
-    // 현재 pending보다 더 오래된 미확정은 자동 확정 (pending은 우승자 매칭으로
-    // 이번 요청에서 처리되므로 제외).
-    if (pending) {
-      await finalizeOlderPending(pending.date, pending.time, all);
-    }
 
     if (!pending) {
       // 미확정 레이스가 없는데 우승자만 들어온 경우.
@@ -227,36 +200,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4차: 라인업에 없는 이름. 빈 레인(slime이 공백) 중 가장 작은 번호 레인을
-    //       우승자로 채움. 에이전트가 한두 레인 스캔 실패했는데 우승자가 그
-    //       레인의 슬라임이었던 경우 자동 복구.
-    const emptyIdx = pending.lanes.findIndex(
-      (l) => !l.slime || l.slime.trim() === ""
-    );
-    if (emptyIdx >= 0) {
-      const newLanes = pending.lanes.map((l, i) =>
-        i === emptyIdx
-          ? {
-              lane: i + 1,
-              slime: winnerName,
-              number: winnerNumber,
-            }
-          : l
-      );
-      const updated: Race = {
-        ...pending,
-        lanes: newLanes,
-        winnerLane: emptyIdx + 1,
-      };
-      const saved = await saveRace(updated);
-      return NextResponse.json({
-        race: saved,
-        matchedLane: emptyIdx + 1,
-        matchedSlime: winnerName,
-        filledEmptyLane: true,
-      });
-    }
-
+    // (과거) 라인업에 없는 이름일 경우 빈 레인에 끼워넣던 4차 fallback 제거.
+    // 잘못된 OCR 결과를 empty 레인에 덮어 써서 오염된 기록을 만드는 부작용이 큼.
+    // 미매칭은 그냥 404 로 거부하고 기록은 pending 상태 유지.
     return NextResponse.json(
       {
         error: "no slime in pending race matched the winner",

@@ -6,7 +6,6 @@ import BannerAdmin from "@/app/components/BannerAdmin";
 import BannerCarousel from "@/app/components/BannerCarousel";
 import FeaturedRaceCard from "@/app/components/FeaturedRaceCard";
 import PastRaceItem from "@/app/components/PastRaceItem";
-import Slime from "@/app/components/Slime";
 import { LaneStatsBar, SlimeStatsTable } from "@/app/components/StatsPanel";
 import {
   apiDeleteRace,
@@ -140,70 +139,53 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
 
       <BannerCarousel banners={banners} />
 
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/8 pb-5">
-        <div className="flex items-center gap-3">
-          <Slime size={36} />
-          <div className="flex flex-col">
-            <div className="text-[10px] uppercase tracking-[0.28em] text-zinc-500">
-              Lineage Classic · Slime Arena
-              {admin && (
-                <span className="ml-2 text-yellow-400/90">· Admin</span>
-              )}
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight title-glow">
-              슬라임 경주 기록판
-            </h1>
-          </div>
-        </div>
-
-        {admin && (
-          <div className="flex items-end gap-3 flex-wrap">
-            <label className="field">
-              날짜
-              <select
-                value={showAll ? "__all__" : selectedDate}
-                onChange={(e) => {
-                  if (e.target.value === "__all__") {
-                    setShowAll(true);
-                  } else {
-                    setShowAll(false);
-                    setSelectedDate(e.target.value);
-                  }
-                }}
-              >
-                <option value="__all__">전체 보기</option>
-                {availableDates.map((d) => (
-                  <option key={d} value={d}>
-                    {d} {d === today ? "(오늘)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              최근 N경기
-              <input
-                type="number"
-                min={1}
-                max={1000}
-                value={settings.recentWindow}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (!Number.isFinite(n) || n < 1) return;
-                  setSettings((s) => ({ ...s, recentWindow: n }));
-                }}
-                onBlur={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n) && n >= 1) updateRecent(n);
-                }}
-                className="w-24"
-              />
-            </label>
-            <button type="button" className="btn" onClick={onLogout}>
-              로그아웃
-            </button>
-          </div>
-        )}
-      </header>
+      {admin && (
+        <header className="flex flex-wrap items-center justify-end gap-3 border-b border-white/8 pb-5">
+          <label className="field">
+            날짜
+            <select
+              value={showAll ? "__all__" : selectedDate}
+              onChange={(e) => {
+                if (e.target.value === "__all__") {
+                  setShowAll(true);
+                } else {
+                  setShowAll(false);
+                  setSelectedDate(e.target.value);
+                }
+              }}
+            >
+              <option value="__all__">전체 보기</option>
+              {availableDates.map((d) => (
+                <option key={d} value={d}>
+                  {d} {d === today ? "(오늘)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            최근 N경기
+            <input
+              type="number"
+              min={1}
+              max={1000}
+              value={settings.recentWindow}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isFinite(n) || n < 1) return;
+                setSettings((s) => ({ ...s, recentWindow: n }));
+              }}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n) && n >= 1) updateRecent(n);
+              }}
+              className="w-24"
+            />
+          </label>
+          <button type="button" className="btn" onClick={onLogout}>
+            로그아웃
+          </button>
+        </header>
+      )}
 
       {err && (
         <div className="text-xs text-red-300 border border-red-500/40 bg-red-950/40 px-3 py-2 rounded-lg flex items-center justify-between">
