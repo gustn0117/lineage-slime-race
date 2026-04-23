@@ -1046,15 +1046,45 @@ class Agent:
         return [self.partial_lineup[i + 1] for i in range(len(self.cfg["lanes"]))]
 
     def _race_time_struct(self) -> time.struct_time:
-        """기록용 race 시각. 아만 '경기 시작 N분전' 기반 `expected_race_ts` 가
-        있으면 그걸, 없으면 현재 로컬 시각을 사용.
-        lineup 을 아만 알림 1~5분 전에 전송하면 로컬 시각으로 기록되는 게
-        실제 race 시각과 어긋나는 문제를 방지.
+        """기록용 race 시각.
+
+        경기 스케줄은 매 10분 (:00, :10, :20, ...). 아만 'N분 전' 알림으로
+        얻은 expected_race_ts 또는 현재 시각을 **가장 가까운 10분 마크**로
+        스냅해서 실제 경기 시각과 일치시킨다.
+
+        예: 11:28:45 에 아만 '1분 전' → now+60 = 11:29:45 → 스냅 → 11:30.
+        아만 신호를 놓쳐 fallback 시에도 :29 / :35 / :39 같은 어긋난 시각이
+        기록되는 걸 방지.
         """
         ts = self.expected_race_ts if self.expected_race_ts else time.time()
-        return time.localtime(ts)
+        lt = time.localtime(ts)
+        # 분 단위로 가장 가까운 10분 배수로 반올림 (5분이면 올림).
+        total_min = lt.tm_hour * 60 + lt.tm_min + (1 if lt.tm_sec >= 30 else 0)
+        snapped = int(round(total_min / 10.0)) * 10
+        snapped_hour, snapped_minute = divmod(snapped, 60)
+        snapped_hour %= 24
+        adjusted_epoch = time.mktime(
+            time.struct_time(
+                (lt.tm_year, lt.tm_mon, lt.tm_mday,
+                 snapped_hour, snapped_minute, 0,
+                 0, 0, -1)
+            )
+        )
+        return time.localtime(adjusted_epoch)
+
+    MIN_LANES_FOR_SEND = 3
 
     def _send_lineup(self, lanes: list[dict]) -> None:
+        # 최소 3 레인이 채워지지 않은 '라인업' 은 false-trigger 일 가능성이 큼
+        # (노란 픽셀 오탐이나 OCR 한두 번 성공으로 붙잡은 조각).
+        # 이걸 서버로 올리면 None-winner 쓰레기 레이스가 쌓여 통계가 오염됨.
+        filled = sum(1 for l in lanes if (l.get("slime") or "").strip())
+        if filled < self.MIN_LANES_FOR_SEND:
+            print(
+                f"  [skip-send] 라인업이 {filled}/{len(lanes)} 레인만 채워짐 → 전송 보류"
+            )
+            return
+
         sig = json.dumps(lanes, ensure_ascii=False, sort_keys=True)
         if sig == self.last_lineup_sig:
             return
