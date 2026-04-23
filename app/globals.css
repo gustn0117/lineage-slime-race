@@ -410,46 +410,6 @@ main {
   text-transform: uppercase;
 }
 
-.banner-dots {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(4px);
-}
-
-/* 모바일에선 배너가 작아 dots 가 광고를 가림 → 숨김 (자동 슬라이드는 유지) */
-@media (max-width: 639px) {
-  .banner-dots {
-    display: none;
-  }
-}
-
-.banner-dots button {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.4);
-  border: 0;
-  cursor: pointer;
-  padding: 0;
-  transition: background 120ms, transform 120ms;
-}
-
-.banner-dots button:hover {
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.banner-dots button.active {
-  background: #fff;
-  transform: scale(1.25);
-}
-
 /* ===== Banner admin ===== */
 .panel-head.w-full {
   cursor: pointer;

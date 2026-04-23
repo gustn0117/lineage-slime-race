@@ -61,19 +61,6 @@ export default function BannerCarousel({ banners, intervalMs = 5000 }: Props) {
       ) : (
         inner
       )}
-      {active.length > 1 && (
-        <div className="banner-dots">
-          {active.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              className={i === idx ? "active" : ""}
-              onClick={() => setIdx(i)}
-              aria-label={`배너 ${i + 1}`}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
