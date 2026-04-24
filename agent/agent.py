@@ -581,6 +581,16 @@ def _template_dir() -> Path:
     return d
 
 
+def _chat_template_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
+    else:
+        base = Path(__file__).parent
+    d = base / "templates-chat"
+    d.mkdir(exist_ok=True)
+    return d
+
+
 class Agent:
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -615,6 +625,10 @@ class Agent:
         # 재차 OCR로 잡혀도 한 번만 처리. 회차 번호는 OCR에 따라 585→535→585
         # 식으로 흔들리므로 dedup 키에서 제외.
         self.recent_winners: dict[str, float] = {}
+        # 라인업 시그니처별로 "우승자 이미 처리됨" 마킹. 채팅창에 우승 메시지가
+        # 오래 떠있어 템플릿이 반복 매칭되는 걸 원천 차단. 다음 라인업 전송 시
+        # sig 가 바뀌면 자연스럽게 다시 열림.
+        self.processed_lineup_sigs: set[str] = set()
         self.seen_lines: set[str] = set()
         # 실패한 레인 재시도를 위한 부분 라인업
         self.partial_lineup: dict[int, dict] = {}
@@ -655,6 +669,23 @@ class Agent:
             print(f"       템플릿 없음(OCR fallback): {', '.join(missing)}")
         else:
             print("       모든 슬라임 템플릿 로드 완료 → OCR 없이 매칭 가능.")
+
+        # 채팅창 전용 템플릿. 레인 툴팁과 폰트/배경이 달라 별도 수집.
+        # OCR 이 깨끗하게 읽은 순간 (#N 이름) 영역을 이 폴더에 저장해두고,
+        # 이후 스캔에선 OCR 보정 없이 픽셀 매칭으로 슬라임/번호 확정.
+        self.chat_templates: list[tuple[str, int, np.ndarray]] = self._load_chat_templates()
+        saved_chat = {re.sub(r"\s+", "", n) for n, _, _ in self.chat_templates}
+        chat_missing = [
+            s for s in CANONICAL_SLIMES
+            if re.sub(r"\s+", "", s) not in saved_chat
+        ]
+        print(
+            f"[init] 채팅 템플릿 {len(self.chat_templates)}/{len(CANONICAL_SLIMES)} 로드됨 → {_chat_template_dir()}"
+        )
+        if chat_missing:
+            print(f"       채팅 템플릿 없음(OCR 로 bootstrap): {', '.join(chat_missing)}")
+        else:
+            print("       모든 채팅 템플릿 확보 → 채팅 OCR 오독 원천 차단.")
 
         if DEBUG_OCR:
             print(f"[init] AGENT_DEBUG_OCR 켜짐. 캡처 결과를 {_debug_dir()} 에 저장합니다.")
@@ -718,6 +749,137 @@ class Agent:
             if max_val >= threshold and (best is None or max_val > best[2]):
                 best = (name, number, float(max_val))
         return best
+
+    def _load_chat_templates(self) -> list[tuple[str, int, np.ndarray]]:
+        """templates-chat/ 폴더의 PNG 를 읽어 (name, number, gray) 리스트로 반환.
+        레인 템플릿과 달리 auto-crop 은 안 함 — 저장 시점에 이미 tight 하게 잘라둠.
+        """
+        out: list[tuple[str, int, np.ndarray]] = []
+        tdir = _chat_template_dir()
+        canon_by_norm = {re.sub(r"\s+", "", s): s for s in CANONICAL_SLIMES}
+        for p in sorted(tdir.glob("*.png")):
+            norm = p.stem
+            canonical = canon_by_norm.get(norm, norm)
+            number = SLIME_NUMBER_MAP.get(norm)
+            if number is None:
+                print(f"  [chat template skip] '{p.name}' 번호 매핑 없음")
+                continue
+            try:
+                with Image.open(p) as im:
+                    rgb = np.array(im.convert("RGB"))
+            except Exception as e:
+                print(f"  [chat template load error] {p.name}: {e}")
+                continue
+            gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+            out.append((canonical, number, gray))
+        return out
+
+    def _match_chat_template(
+        self, capture: np.ndarray, threshold: float = 0.80
+    ) -> Optional[tuple[str, int, float]]:
+        """채팅창 캡처에서 #N 슬라임이름 템플릿 중 최고 점수 매칭 반환.
+
+        현재 라인업 정보가 있으면 매칭 대상을 라인업 슬라임으로 제한 — 채팅
+        버퍼에 남아있는 이전 경기의 우승 메시지가 잘못 매칭되는 걸 방지.
+        """
+        if not self.chat_templates:
+            return None
+        if capture.size == 0:
+            return None
+        if self.current_lineup_keys:
+            eligible = [
+                t for t in self.chat_templates
+                if re.sub(r"\s+", "", t[0]) in self.current_lineup_keys
+            ]
+        else:
+            eligible = self.chat_templates
+        if not eligible:
+            return None
+        cap_gray = cv2.cvtColor(capture, cv2.COLOR_RGB2GRAY)
+        cap_h, cap_w = cap_gray.shape
+        best: Optional[tuple[str, int, float]] = None
+        for name, number, tpl in eligible:
+            th, tw = tpl.shape
+            if th > cap_h or tw > cap_w:
+                continue
+            result = cv2.matchTemplate(cap_gray, tpl, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            if max_val >= threshold and (best is None or max_val > best[2]):
+                best = (name, number, float(max_val))
+        return best
+
+    def _save_chat_template(
+        self, canonical_name: str, num: int, img: np.ndarray
+    ) -> None:
+        """OCR 이 깨끗하게 읽은 우승 라인에서 '#N 이름' 영역만 잘라 저장.
+
+        저장 조건:
+          - templates-chat/<이름>.png 이 아직 없을 때만 (최초 한 번).
+          - readtext detail=1 로 '#N' 또는 이름 음절을 포함하는 텍스트 박스를 찾음.
+          - 해당 박스 좌표를 원본 img 좌표계로 역변환해 크롭.
+        """
+        if not canonical_name:
+            return
+        norm = re.sub(r"\s+", "", canonical_name)
+        if not norm:
+            return
+        path = _chat_template_dir() / f"{norm}.png"
+        if path.exists():
+            return
+
+        scale = 1.6
+        processed = _preprocess_for_ocr(img, scale=scale)
+        try:
+            results = self.dialog_reader.readtext(
+                processed,
+                detail=1,
+                paragraph=False,
+                decoder="greedy",
+                **OCR_DETECTION_KWARGS,
+            )
+        except Exception as e:
+            print(f"  [chat template save error] readtext: {e}")
+            return
+
+        # '#N' 과 이름을 한 박스 안에 포함하는 후보 찾기.
+        # 게임 채팅 렌더 상 '#9 이븐스타' 가 보통 한 덩어리로 잡힘.
+        target_hash = f"#{num}"
+        best_box: Optional[tuple] = None
+        for bbox, text, _conf in results:
+            clean = re.sub(r"\s+", "", text)
+            if norm in clean and (target_hash in text or str(num) in clean):
+                best_box = bbox
+                break
+        if best_box is None:
+            # fallback: 이름만 포함해도 허용
+            for bbox, text, _conf in results:
+                clean = re.sub(r"\s+", "", text)
+                if norm in clean:
+                    best_box = bbox
+                    break
+        if best_box is None:
+            return
+
+        xs = [p[0] / scale for p in best_box]
+        ys = [p[1] / scale for p in best_box]
+        x0 = max(0, int(min(xs)) - 2)
+        y0 = max(0, int(min(ys)) - 2)
+        x1 = min(img.shape[1], int(max(xs)) + 3)
+        y1 = min(img.shape[0], int(max(ys)) + 3)
+        if x1 - x0 < 20 or y1 - y0 < 6:
+            return
+        crop = img[y0:y1, x0:x1]
+
+        try:
+            Image.fromarray(crop).save(path)
+            print(
+                f"  [chat template saved] '{canonical_name}' → {path.name} "
+                f"({crop.shape[1]}x{crop.shape[0]})"
+            )
+            gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
+            self.chat_templates.append((canonical_name, num, gray))
+        except Exception as e:
+            print(f"  [chat template save error] {e}")
 
     def _fetch_known_slimes(self) -> None:
         """서버에 있는 슬라임 이름도 병합 (공식 리스트에 없는 새 이름 대비)."""
@@ -1257,18 +1419,53 @@ class Agent:
                 self.race_started = True
                 break
 
-        # 마후 우승 결과 추출 (1차 패스).
-        winner: Optional[tuple[int, int, str, str]] = None
-        for line in candidates:
-            got = self._try_find_winner(line)
-            if got:
-                rno, num, name = got
-                winner = (rno, num, name, line)
-                break
+        # 우승자 처리 게이트: 이번 경기 우승자 이미 처리됐으면 스킵.
+        # 채팅 메시지가 화면에 수초~수분 떠있어서 템플릿이 반복 매칭되는 걸 차단.
+        # 다음 라인업 전송으로 sig 가 바뀌면 자동으로 풀림.
+        winner_blocked = bool(
+            self.last_lineup_sig
+            and self.last_lineup_sig in self.processed_lineup_sigs
+        )
 
-        # 2차 패스: 1차에서 못 잡았는데 최근에 경기가 진행 중이면 (aman 신호 또는
-        # 라인업 전송 기록이 있으면) 이진화 고해상도 재OCR 로 한 번 더 시도.
-        if winner is None and self._race_likely_ongoing():
+        # 우승 컨텍스트(마후/우승) 존재 여부. 템플릿 매칭 트리거 및 잡음 차단용.
+        has_mahu_context = any(
+            MAHU_CONTEXT_PATTERN.search(line) for line in candidates
+        ) or bool(MAHU_CONTEXT_PATTERN.search(joined))
+
+        winner: Optional[tuple[int, int, str, str]] = None
+        winner_source: str = ""
+
+        # 1단계: 채팅 템플릿 매칭 (픽셀 단위 → OCR 오독 불가).
+        # 우승 컨텍스트가 있을 때만 돌려서 일반 채팅 언급으로 인한 오탐 차단.
+        if has_mahu_context and not winner_blocked:
+            tm = self._match_chat_template(img)
+            if tm is not None:
+                tname, tnum, tscore = tm
+                round_no = 0
+                for line in candidates:
+                    rm = MAHU_ROUND_PATTERN.search(line)
+                    if rm:
+                        round_no = int(rm.group(1))
+                        break
+                winner = (round_no, tnum, tname, joined or "")
+                winner_source = "template"
+                print(
+                    f"  [winner-template] {round_no}회 #{tnum} {tname} "
+                    f"(score={tscore:.3f})"
+                )
+
+        # 2단계: OCR 기반 (템플릿 매칭 실패 시 fallback).
+        if winner is None and not winner_blocked:
+            for line in candidates:
+                got = self._try_find_winner(line)
+                if got:
+                    rno, num, name = got
+                    winner = (rno, num, name, line)
+                    winner_source = "ocr"
+                    break
+
+        # 3단계: binary 재OCR (OCR 1차도 실패하고 경기 진행 중일 때).
+        if winner is None and not winner_blocked and self._race_likely_ongoing():
             fallback_lines = self._dialog_ocr_lines(
                 img, scale=3.0, preprocess="binary"
             )
@@ -1280,6 +1477,7 @@ class Agent:
                 if got:
                     rno, num, name = got
                     winner = (rno, num, name, fallback_joined)
+                    winner_source = "ocr-binary"
                     print(
                         f"  [winner-fallback] binary 재OCR 로 포착: '{fallback_joined[:120]}'"
                     )
@@ -1287,6 +1485,17 @@ class Agent:
         if winner is not None:
             rno, num, name, raw = winner
             self._handle_winner(rno, num, name, raw)
+            # OCR 이 깨끗한 exact canonical 일 때만 채팅 템플릿으로 snapshot 저장.
+            # 이후 같은 슬라임 우승 시 픽셀 매칭으로 OCR 없이 확정 → swap 원천 차단.
+            if winner_source.startswith("ocr"):
+                norm_name = re.sub(r"\s+", "", name)
+                canon_norms = {
+                    re.sub(r"\s+", "", s): s for s in self.known_slimes
+                }
+                if norm_name in canon_norms:
+                    self._save_chat_template(
+                        canon_norms[norm_name], num, img
+                    )
             # 우승 확정 후 상태 초기화 (다음 경기용)
             self.aman_trigger_ts = None
             self.race_started = False
@@ -1330,6 +1539,12 @@ class Agent:
                 f"({', '.join(sorted(self.current_lineup_keys))}) 에 없음 — 전송 보류"
             )
             return
+
+        # 이 지점: 이름 보정 + 라인업 일치 모두 통과 = 유효한 우승자.
+        # 같은 경기에서 재매칭 방지 위해 sig 마킹. POST 성공 여부와 무관하게
+        # 마킹해서 서버가 404 뱉어도 재시도 스팸을 막음.
+        if self.last_lineup_sig:
+            self.processed_lineup_sigs.add(self.last_lineup_sig)
 
         # 60초 dedup: round / (번호,이름) / 이름 만 세 가지 키 모두로 차단.
         now = time.time()

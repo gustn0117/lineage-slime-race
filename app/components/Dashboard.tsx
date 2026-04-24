@@ -137,7 +137,7 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
         ))}
       </datalist>
 
-      <BannerCarousel banners={banners} />
+      <BannerCarousel banners={banners} position="top" />
 
       {admin && (
         <header className="flex flex-wrap items-center justify-end gap-3 border-b border-white/8 pb-5">
@@ -286,6 +286,8 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
           />
         </aside>
       </div>
+
+      <BannerCarousel banners={banners} position="bottom" />
     </main>
   );
 }

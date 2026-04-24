@@ -6,7 +6,7 @@ import {
   apiSaveBanner,
   apiUploadBannerImage,
 } from "@/lib/client";
-import { Banner } from "@/lib/types";
+import { Banner, BannerPosition } from "@/lib/types";
 import { useRef, useState } from "react";
 
 type Props = {
@@ -19,6 +19,7 @@ export default function BannerAdmin({ banners, onChange }: Props) {
   const [imageUrl, setImageUrl] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [title, setTitle] = useState("");
+  const [position, setPosition] = useState<BannerPosition>("top");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -65,6 +66,7 @@ export default function BannerAdmin({ banners, onChange }: Props) {
         linkUrl: linkUrl.trim() || undefined,
         title: title.trim() || undefined,
         enabled: true,
+        position,
       });
       onChange([...banners, saved]);
       setImageUrl("");
@@ -186,6 +188,18 @@ export default function BannerAdmin({ banners, onChange }: Props) {
                 onChange={(e) => setTitle(e.target.value)}
               />
             </label>
+            <label className="field">
+              노출 위치
+              <select
+                value={position}
+                onChange={(e) =>
+                  setPosition(e.target.value as BannerPosition)
+                }
+              >
+                <option value="top">상단</option>
+                <option value="bottom">하단</option>
+              </select>
+            </label>
             {err && <div className="text-xs text-red-300">{err}</div>}
             <div className="flex gap-2">
               <button
@@ -222,6 +236,19 @@ export default function BannerAdmin({ banners, onChange }: Props) {
                       />
                       <span>{b.enabled ? "노출 ON" : "숨김"}</span>
                     </label>
+                    <select
+                      value={b.position ?? "top"}
+                      onChange={(e) =>
+                        patch(b.id, {
+                          position: e.target.value as BannerPosition,
+                        })
+                      }
+                      className="banner-position-select"
+                      title="노출 위치"
+                    >
+                      <option value="top">상단</option>
+                      <option value="bottom">하단</option>
+                    </select>
                     <button
                       type="button"
                       className="btn banner-replace-btn"

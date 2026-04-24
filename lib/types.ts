@@ -42,6 +42,8 @@ export interface LaneStat {
   wins: number;          // 오늘 기준
 }
 
+export type BannerPosition = "top" | "bottom";
+
 export interface Banner {
   id: string;
   imageUrl: string;
@@ -50,4 +52,5 @@ export interface Banner {
   enabled: boolean;
   order: number;
   createdAt: number;
+  position?: BannerPosition; // 기본 "top"
 }

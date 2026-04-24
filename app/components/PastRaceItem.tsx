@@ -52,7 +52,9 @@ export default function PastRaceItem({
             <span className="past-star">★</span>
           </>
         ) : (
-          <span className="past-pending">미확정</span>
+          <span className={`past-pending ${admin ? "is-admin" : ""}`}>
+            미확정
+          </span>
         )}
 
         <span className={`past-chevron ${open ? "open" : ""}`} aria-hidden>

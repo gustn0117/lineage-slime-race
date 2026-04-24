@@ -1,16 +1,21 @@
 "use client";
 
-import { Banner } from "@/lib/types";
+import { Banner, BannerPosition } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 type Props = {
   banners: Banner[];
   intervalMs?: number;
+  position?: BannerPosition; // 필터 대상. 기본 "top".
 };
 
-export default function BannerCarousel({ banners, intervalMs = 5000 }: Props) {
+export default function BannerCarousel({
+  banners,
+  intervalMs = 5000,
+  position = "top",
+}: Props) {
   const active = banners
-    .filter((b) => b.enabled && b.imageUrl)
+    .filter((b) => b.enabled && b.imageUrl && (b.position ?? "top") === position)
     .sort((a, b) => a.order - b.order);
 
   const [idx, setIdx] = useState(0);

@@ -46,6 +46,8 @@ export default function FeaturedRaceCard({
     });
   };
 
+  const isPending = race.winnerLane === null;
+
   return (
     <div className="race-featured">
       <div className="race-featured-head">
@@ -68,6 +70,9 @@ export default function FeaturedRaceCard({
                 step={10}
               />
             </div>
+          )}
+          {!readOnly && isPending && (
+            <span className="race-pending-chip">미확정</span>
           )}
         </div>
         {!readOnly && onDelete && (
