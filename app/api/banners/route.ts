@@ -35,7 +35,6 @@ export async function POST(req: NextRequest) {
     enabled: body.enabled !== false,
     order: typeof body.order === "number" ? body.order : nextOrder,
     createdAt: body.createdAt ?? Date.now(),
-    position: body.position === "bottom" ? "bottom" : "top",
   };
   const saved = await saveBanner(banner);
   return NextResponse.json({ banner: saved });

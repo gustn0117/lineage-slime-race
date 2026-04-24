@@ -41,10 +41,6 @@ export async function PATCH(
       typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
     order:
       typeof patch.order === "number" ? patch.order : cur.order,
-    position:
-      patch.position === "top" || patch.position === "bottom"
-        ? patch.position
-        : (cur.position ?? "top"),
   };
   const saved = await saveBanner(next);
   return NextResponse.json({ banner: saved });
