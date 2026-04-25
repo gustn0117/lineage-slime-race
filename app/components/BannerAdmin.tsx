@@ -6,8 +6,14 @@ import {
   apiSaveBanner,
   apiUploadBannerImage,
 } from "@/lib/client";
-import { Banner } from "@/lib/types";
+import {
+  BANNER_SLOT_LABELS,
+  Banner,
+  BannerSlot,
+} from "@/lib/types";
 import { useRef, useState } from "react";
+
+const SLOT_OPTIONS: BannerSlot[] = ["top-1", "top-2", "bottom"];
 
 type Props = {
   banners: Banner[];
@@ -19,6 +25,7 @@ export default function BannerAdmin({ banners, onChange }: Props) {
   const [imageUrl, setImageUrl] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [title, setTitle] = useState("");
+  const [slot, setSlot] = useState<BannerSlot>("top-1");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -65,6 +72,7 @@ export default function BannerAdmin({ banners, onChange }: Props) {
         linkUrl: linkUrl.trim() || undefined,
         title: title.trim() || undefined,
         enabled: true,
+        slot,
       });
       onChange([...banners, saved]);
       setImageUrl("");
@@ -186,6 +194,19 @@ export default function BannerAdmin({ banners, onChange }: Props) {
                 onChange={(e) => setTitle(e.target.value)}
               />
             </label>
+            <label className="field">
+              노출 슬롯
+              <select
+                value={slot}
+                onChange={(e) => setSlot(e.target.value as BannerSlot)}
+              >
+                {SLOT_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {BANNER_SLOT_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </label>
             {err && <div className="text-xs text-red-300">{err}</div>}
             <div className="flex gap-2">
               <button
@@ -222,6 +243,20 @@ export default function BannerAdmin({ banners, onChange }: Props) {
                       />
                       <span>{b.enabled ? "노출 ON" : "숨김"}</span>
                     </label>
+                    <select
+                      value={b.slot ?? "top-1"}
+                      onChange={(e) =>
+                        patch(b.id, { slot: e.target.value as BannerSlot })
+                      }
+                      className="banner-slot-select"
+                      title="노출 슬롯"
+                    >
+                      {SLOT_OPTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {BANNER_SLOT_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       className="btn banner-replace-btn"

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin";
 import { listBanners, saveBanner } from "@/lib/db";
-import { Banner } from "@/lib/types";
+import { Banner, BannerSlot } from "@/lib/types";
+
+const VALID_SLOTS: BannerSlot[] = ["top-1", "top-2", "bottom"];
 
 export async function GET() {
   const banners = await listBanners();
@@ -27,6 +29,9 @@ export async function POST(req: NextRequest) {
   const nextOrder = existing.length
     ? Math.max(...existing.map((b) => b.order)) + 1
     : 0;
+  const slot: BannerSlot = VALID_SLOTS.includes(body.slot as BannerSlot)
+    ? (body.slot as BannerSlot)
+    : "top-1";
   const banner: Banner = {
     id: body.id ?? makeId(),
     imageUrl: String(body.imageUrl).trim(),
@@ -35,6 +40,7 @@ export async function POST(req: NextRequest) {
     enabled: body.enabled !== false,
     order: typeof body.order === "number" ? body.order : nextOrder,
     createdAt: body.createdAt ?? Date.now(),
+    slot,
   };
   const saved = await saveBanner(banner);
   return NextResponse.json({ banner: saved });

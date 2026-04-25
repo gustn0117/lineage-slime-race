@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin";
 import { deleteBanner, listBanners, saveBanner } from "@/lib/db";
 import { deleteBannerImage, extractPath } from "@/lib/storage";
-import { Banner } from "@/lib/types";
+import { Banner, BannerSlot } from "@/lib/types";
+
+const VALID_SLOTS: BannerSlot[] = ["top-1", "top-2", "bottom"];
 
 export async function PATCH(
   req: NextRequest,
@@ -41,6 +43,9 @@ export async function PATCH(
       typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
     order:
       typeof patch.order === "number" ? patch.order : cur.order,
+    slot: VALID_SLOTS.includes(patch.slot as BannerSlot)
+      ? (patch.slot as BannerSlot)
+      : (cur.slot ?? "top-1"),
   };
   const saved = await saveBanner(next);
   return NextResponse.json({ banner: saved });

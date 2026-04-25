@@ -517,6 +517,16 @@ main {
   font-size: 11px;
 }
 
+.banner-slot-select {
+  font-size: 11px;
+  color: var(--foreground);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 6px;
+  padding: 3px 6px;
+  outline: none;
+}
+
 /* ===== Agent panel ===== */
 .agent-field {
   display: flex;

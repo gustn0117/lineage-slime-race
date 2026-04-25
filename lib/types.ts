@@ -42,6 +42,14 @@ export interface LaneStat {
   wins: number;          // 오늘 기준
 }
 
+export type BannerSlot = "top-1" | "top-2" | "bottom";
+
+export const BANNER_SLOT_LABELS: Record<BannerSlot, string> = {
+  "top-1": "상단 1",
+  "top-2": "상단 2",
+  bottom: "하단",
+};
+
 export interface Banner {
   id: string;
   imageUrl: string;
@@ -50,4 +58,5 @@ export interface Banner {
   enabled: boolean;
   order: number;
   createdAt: number;
+  slot?: BannerSlot; // 기본 "top-1"
 }

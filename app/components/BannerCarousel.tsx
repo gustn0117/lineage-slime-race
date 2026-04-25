@@ -1,16 +1,23 @@
 "use client";
 
-import { Banner } from "@/lib/types";
+import { Banner, BannerSlot } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 type Props = {
   banners: Banner[];
+  slot: BannerSlot;
   intervalMs?: number;
 };
 
-export default function BannerCarousel({ banners, intervalMs = 5000 }: Props) {
+export default function BannerCarousel({
+  banners,
+  slot,
+  intervalMs = 5000,
+}: Props) {
   const active = banners
-    .filter((b) => b.enabled && b.imageUrl)
+    .filter(
+      (b) => b.enabled && b.imageUrl && (b.slot ?? "top-1") === slot
+    )
     .sort((a, b) => a.order - b.order);
 
   const [idx, setIdx] = useState(0);

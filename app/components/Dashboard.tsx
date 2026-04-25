@@ -137,7 +137,10 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
         ))}
       </datalist>
 
-      <BannerCarousel banners={banners} />
+      <div className="flex flex-col gap-3">
+        <BannerCarousel banners={banners} slot="top-1" />
+        <BannerCarousel banners={banners} slot="top-2" />
+      </div>
 
       {admin && (
         <header className="flex flex-wrap items-center justify-end gap-3 border-b border-white/8 pb-5">
@@ -287,7 +290,7 @@ export default function Dashboard({ admin = false, onLogout }: Props) {
         </aside>
       </div>
 
-      <BannerCarousel banners={banners} />
+      <BannerCarousel banners={banners} slot="bottom" />
     </main>
   );
 }
