@@ -44,8 +44,39 @@ async function writeJson(file: string, data: unknown) {
   await fs.rename(tmp, file);
 }
 
+// 알려진 오타 → 공식 이름. 프로세스 첫 listRaces() 호출 시 한 번만 races.json
+// 을 정리. 이후 호출은 already-clean 이라 no-op. saveRace 가 fix 결과를 영구화.
+const SLIME_TYPO_MAP: Record<string, string> = {
+  슈퍼블래: "슈퍼블랙",
+  팰컨: "펠컨",
+};
+let typoMigrationDone = false;
+
+async function migrateSlimeTypos(races: Race[]): Promise<Race[]> {
+  if (typoMigrationDone) return races;
+  typoMigrationDone = true;
+
+  let fixed = 0;
+  for (const r of races) {
+    for (const l of r.lanes ?? []) {
+      const s = (l.slime ?? "").trim();
+      const canonical = SLIME_TYPO_MAP[s];
+      if (canonical) {
+        l.slime = canonical;
+        fixed++;
+      }
+    }
+  }
+  if (fixed > 0) {
+    await writeJson(RACES_FILE, races);
+    console.log(`[migrate] slime typo 정정 ${fixed}건 적용`);
+  }
+  return races;
+}
+
 export async function listRaces(): Promise<Race[]> {
-  const races = await readJson<Race[]>(RACES_FILE, []);
+  let races = await readJson<Race[]>(RACES_FILE, []);
+  races = await migrateSlimeTypos(races);
   return [...races].sort((a, b) => {
     const aKey = `${a.date} ${a.time}`;
     const bKey = `${b.date} ${b.time}`;
