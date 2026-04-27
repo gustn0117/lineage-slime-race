@@ -4,7 +4,14 @@ import { AppSettings, Banner, Race } from "./types";
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const msg = await res.text().catch(() => res.statusText);
+    const raw = await res.text().catch(() => res.statusText);
+    let msg = raw;
+    try {
+      const j = JSON.parse(raw) as { error?: string };
+      if (j && typeof j.error === "string") msg = j.error;
+    } catch {
+      /* not JSON, use raw text */
+    }
     throw new Error(msg || `HTTP ${res.status}`);
   }
   return (await res.json()) as T;

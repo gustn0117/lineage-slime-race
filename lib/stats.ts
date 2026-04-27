@@ -1,5 +1,6 @@
 // 통계 계산 유틸 - 순수 함수
 
+import { CANONICAL_SLIME_NAMES } from "./slimes";
 import { LANE_COUNT, LaneStat, Race, SlimeStat } from "./types";
 
 // 공백/트레일링 스페이스 차이로 같은 슬라임이 두 행으로 쪼개지는 걸 막기 위한 정규화.
@@ -111,9 +112,10 @@ export function computeLaneStats(
   return out;
 }
 
-// 입력된 슬라임 이름 후보 목록 (지금까지 등장한 모든 이름)
+// 입력 자동완성용 후보 목록. 공식 20종을 항상 포함하고, 과거 기록에 있던
+// 추가 이름이 있으면 합쳐서 반환 (legacy 데이터 호환).
 export function allSlimeNames(races: Race[]): string[] {
-  const set = new Set<string>();
+  const set = new Set<string>(CANONICAL_SLIME_NAMES);
   for (const r of races) {
     for (const l of r.lanes) {
       if (!l.slime) continue;

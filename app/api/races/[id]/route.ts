@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteRace, listRaces, saveRace } from "@/lib/db";
+import { isCanonicalSlimeName } from "@/lib/slimes";
 import { LANE_COUNT, Race } from "@/lib/types";
 import { isAdminRequest } from "@/lib/admin";
 
@@ -29,6 +30,25 @@ export async function PATCH(
   if (!cur) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const patch = (await req.json()) as Partial<Race>;
+
+  // 빈 칸은 허용. 입력된 이름은 공식 슬라임 목록에 있어야 함 (오타 차단).
+  if (Array.isArray(patch.lanes)) {
+    const invalid = patch.lanes
+      .slice(0, LANE_COUNT)
+      .map((l, i) => ({ name: String(l.slime ?? "").trim(), lane: i + 1 }))
+      .filter((x) => x.name && !isCanonicalSlimeName(x.name));
+    if (invalid.length) {
+      return NextResponse.json(
+        {
+          error: `슬라임 이름 오타: ${invalid
+            .map((x) => `${x.lane}레인 "${x.name}"`)
+            .join(", ")}`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const next: Race = {
     ...cur,
     ...patch,

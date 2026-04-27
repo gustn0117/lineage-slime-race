@@ -25,10 +25,22 @@ const SLIME_NUMBERS: Record<string, number> = {
   젤리피쉬: 20,
 };
 
+// 검증/자동완성용 공식 슬라임 이름 목록. 번호 순 정렬.
+export const CANONICAL_SLIME_NAMES: string[] = Object.entries(SLIME_NUMBERS)
+  .sort((a, b) => a[1] - b[1])
+  .map(([name]) => name);
+
 export function slimeNumber(name: string): number | undefined {
   if (!name) return undefined;
   const key = name.trim().replace(/\s+/g, "");
   return SLIME_NUMBERS[key];
+}
+
+// 입력 이름이 공식 슬라임 목록에 있는지 검사. 공백/캐논 보이/캐논보이 동등.
+export function isCanonicalSlimeName(name: string): boolean {
+  if (!name) return false;
+  const key = name.trim().replace(/\s+/g, "");
+  return key in SLIME_NUMBERS;
 }
 
 /**

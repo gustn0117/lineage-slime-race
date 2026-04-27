@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listRaces, saveRace } from "@/lib/db";
+import { isCanonicalSlimeName } from "@/lib/slimes";
 import { LANE_COUNT, Race } from "@/lib/types";
 import { isAdminRequest } from "@/lib/admin";
 
@@ -31,6 +32,21 @@ export async function POST(req: NextRequest) {
   if (lanes.length !== LANE_COUNT) {
     return NextResponse.json(
       { error: `레인 수는 ${LANE_COUNT}개여야 합니다.` },
+      { status: 400 }
+    );
+  }
+
+  // 빈 칸은 허용. 입력된 이름은 공식 슬라임 목록에 있어야 함 (오타 차단).
+  const invalid = lanes
+    .map((l, i) => ({ name: String(l.slime ?? "").trim(), lane: i + 1 }))
+    .filter((x) => x.name && !isCanonicalSlimeName(x.name));
+  if (invalid.length) {
+    return NextResponse.json(
+      {
+        error: `슬라임 이름 오타: ${invalid
+          .map((x) => `${x.lane}레인 "${x.name}"`)
+          .join(", ")}`,
+      },
       { status: 400 }
     );
   }
